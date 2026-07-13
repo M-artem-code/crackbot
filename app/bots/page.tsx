@@ -13,7 +13,7 @@ export default function BotsPage() {
         title="Мои боты"
         description="все боты-автоматизации"
         actions={
-          <Button size="sm" render={<Link href="/create" />}>
+          <Button size="sm" nativeButton={false} render={<Link href="/create" />}>
             <PlusIcon data-icon="inline-start" />
             Новый бот
           </Button>

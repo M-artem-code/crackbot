@@ -156,7 +156,7 @@ export function BotsGrid() {
                       Пауза
                     </Button>
                   )}
-                  <Button size="sm" render={<Link href={`/bots/${bot.id}`} />}>
+                  <Button size="sm" nativeButton={false} render={<Link href={`/bots/${bot.id}`} />}>
                     Открыть
                   </Button>
                 </div>

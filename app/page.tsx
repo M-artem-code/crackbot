@@ -77,7 +77,7 @@ export default function DashboardPage() {
         title="Дашборд"
         description="общая статистика по всем ботам"
         actions={
-          <Button size="sm" render={<Link href="/create" />}>
+          <Button size="sm" nativeButton={false} render={<Link href="/create" />}>
             Создать бота
           </Button>
         }
@@ -137,6 +137,7 @@ export default function DashboardPage() {
                 variant="outline"
                 size="sm"
                 className="mt-1"
+                nativeButton={false}
                 render={<Link href="/bots" />}
               >
                 Все боты
