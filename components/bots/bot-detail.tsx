@@ -9,6 +9,7 @@ import { useRouter } from 'next/navigation'
 import { cancelRun, enqueueRun } from '@/app/actions/bots'
 import { PageHeader } from '@/components/page-header'
 import { RunLog } from '@/components/bots/run-log'
+import { RunReport } from '@/components/bots/run-report'
 import { BotStatusBadge, RunStatusBadge } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -319,7 +320,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <RunLog steps={liveRun.steps} />
+                  {isRunning ? <RunLog steps={liveRun.steps} /> : <RunReport run={liveRun} />}
                 </CardContent>
               </Card>
             ) : selectedRun ? (
@@ -336,7 +337,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RunLog steps={selectedRun.steps} />
+                  <RunReport run={selectedRun} />
                 </CardContent>
               </Card>
             ) : (

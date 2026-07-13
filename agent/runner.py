@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
+from artifacts import ArtifactCollector, PendingArtifact
 from browser import Browser
 from mail_client import TempMailWorldClient
 from scenario import LocatorStrategy, ScenarioDefinition, ScenarioStep, parse_scenario, redact_text, resolve_value
@@ -57,6 +58,7 @@ class RunResult:
     success_count: int = 0
     failed_count: int = 0
     errors: List[str] = field(default_factory=list)
+    artifacts: List[PendingArtifact] = field(default_factory=list)
 
 
 @dataclass
@@ -73,6 +75,7 @@ class ExecutionContext:
     browser: Optional[Browser] = None
     tab: Any = None
     mail_creds: Optional[Dict[str, Any]] = None
+    artifacts: Optional[ArtifactCollector] = None
 
     def safe(self, value: Any) -> str:
         return redact_text(value, self.secrets)
@@ -270,7 +273,15 @@ async def handle_screenshot(ctx: ExecutionContext, step: ScenarioStep) -> Dict[s
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / (step.file_name or f"{step.id}.png")
     await tab.save_screenshot(str(path))
-    return {"localPath": str(path)}
+    if ctx.artifacts:
+        ctx.artifacts.add_existing(
+            path,
+            "screenshot",
+            "image/png",
+            step_id=step.id,
+            metadata={"currentUrl": str(getattr(tab, "url", ""))},
+        )
+    return {"artifactKind": "screenshot"}
 
 
 HANDLERS = {
@@ -309,8 +320,29 @@ async def execute_step(ctx: ExecutionContext, step: ScenarioStep) -> None:
             elapsed = int((time.monotonic() - started) * 1000)
             metadata = getattr(exc, "metadata", {})
             if ctx.tab is not None:
-                metadata = {**metadata, "currentUrl": str(getattr(ctx.tab, "url", ""))}
+                current_url = str(getattr(ctx.tab, "url", ""))
+                metadata = {**metadata, "currentUrl": current_url}
             last = attempt >= step.max_attempts
+            if last and ctx.tab is not None and ctx.artifacts:
+                try:
+                    screenshot_path = ctx.artifacts.directory / f"{step.id}-failure.png"
+                    await ctx.tab.save_screenshot(str(screenshot_path))
+                    ctx.artifacts.add_existing(
+                        screenshot_path,
+                        "screenshot",
+                        "image/png",
+                        step_id=step.id,
+                        metadata={"reason": "step-failure", "currentUrl": current_url},
+                    )
+                    html = await ctx.tab.get_content() or ""
+                    ctx.artifacts.write_dom(
+                        html,
+                        step.id,
+                        metadata={"reason": "step-failure", "currentUrl": current_url},
+                    )
+                    metadata = {**metadata, "failureArtifactsCaptured": True}
+                except Exception as artifact_exc:  # noqa: BLE001
+                    metadata = {**metadata, "artifactWarning": ctx.safe(str(artifact_exc))}
             ctx.log(step.id, ctx.safe(str(exc)), worker=ctx.worker_id, level="error" if last else "warn", duration_ms=elapsed, attempt=attempt, metadata=metadata)
             if last:
                 if step.continue_on_error:
@@ -319,21 +351,61 @@ async def execute_step(ctx: ExecutionContext, step: ScenarioStep) -> None:
             await asyncio.sleep(step.retry_delay_ms / 1000)
 
 
-async def run_worker(worker_id: int, job: Dict[str, Any], cfg: RunnerConfig, scenario: ScenarioDefinition, mail: Any, log: LogFn, should_cancel: CancelFn) -> bool:
+async def run_worker(worker_id: int, job: Dict[str, Any], cfg: RunnerConfig, scenario: ScenarioDefinition, mail: Any, log: LogFn, should_cancel: CancelFn) -> List[PendingArtifact]:
     bot = job.get("bot") or {}
     ref = job.get("ref") or {}
     target_url = str(ref.get("url") or bot.get("targetUrl") or "").strip()
     variables = {**scenario.variables, "targetUrl": target_url, "baseUrl": target_url}
     password = str((bot.get("config") or {}).get("password") or _random_password())
     variables["generated.password"] = password
-    ctx = ExecutionContext(job=job, cfg=cfg, scenario=scenario, log=log, worker_id=worker_id, mail=mail, should_cancel=should_cancel, variables=variables, secrets={"password": password})
+    secrets = {"password": password}
+    collector = ArtifactCollector(
+        cfg.screenshots_dir,
+        str(job.get("runId") or "run"),
+        worker_id,
+        secrets,
+    )
+    ctx = ExecutionContext(
+        job=job,
+        cfg=cfg,
+        scenario=scenario,
+        log=log,
+        worker_id=worker_id,
+        mail=mail,
+        should_cancel=should_cancel,
+        variables=variables,
+        secrets=secrets,
+        artifacts=collector,
+    )
     ctx.browser = Browser(headless=cfg.headless, proxy=cfg.proxy, log_func=lambda message: log("browser", message, worker=worker_id))
     try:
         await ctx.browser.start()
         for step in scenario.steps:
             if step.enabled:
                 await execute_step(ctx, step)
-        return True
+        collector.write_report(
+            {
+                "runId": job.get("runId"),
+                "worker": worker_id,
+                "status": "success",
+                "scenario": {"version": scenario.version, "name": scenario.name},
+                "targetUrl": target_url,
+            }
+        )
+        return collector.items
+    except Exception as exc:
+        collector.write_report(
+            {
+                "runId": job.get("runId"),
+                "worker": worker_id,
+                "status": "failed",
+                "scenario": {"version": scenario.version, "name": scenario.name},
+                "targetUrl": target_url,
+                "error": ctx.safe(str(exc)),
+            }
+        )
+        setattr(exc, "artifacts", collector.items)
+        raise
     finally:
         await ctx.browser.stop()
 
@@ -358,13 +430,16 @@ async def run_job(job: Dict[str, Any], cfg: RunnerConfig, log: LogFn, should_can
     )
     cancelled = any(isinstance(outcome, RunCancelled) for outcome in outcomes)
     for outcome in outcomes:
-        if outcome is True:
+        if isinstance(outcome, list):
             result.success_count += 1
+            result.artifacts.extend(outcome)
         elif isinstance(outcome, RunCancelled):
             result.errors.append("Запуск отменён пользователем")
+            result.artifacts.extend(getattr(outcome, "artifacts", []))
         else:
             result.failed_count += 1
             result.errors.append(str(outcome))
+            result.artifacts.extend(getattr(outcome, "artifacts", []))
 
     result.status = TERMINAL_CANCELLED if cancelled else TERMINAL_SUCCESS if result.failed_count == 0 and result.success_count > 0 else TERMINAL_FAILED
     log("finish", f"Итог: {result.status}; успех={result.success_count}; ошибок={result.failed_count}", level="success" if result.status == TERMINAL_SUCCESS else "warn" if result.status == TERMINAL_CANCELLED else "error")

@@ -83,6 +83,37 @@ class CrackbotClient:
         """Возвращает текущий статус и признак запрошенной отмены."""
         return self._get(f"/api/agent/runs/{run_id}/state")
 
+    def upload_artifact(
+        self,
+        run_id: str,
+        *,
+        path: str,
+        kind: str,
+        content_type: str,
+        worker: int = 0,
+        step_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Загружает уже отредактированный артефакт в приватное хранилище."""
+        headers = {
+            "Authorization": self.session.headers.get("Authorization", ""),
+            "Accept": "application/json",
+        }
+        data = {"kind": kind, "worker": str(max(0, int(worker)))}
+        if step_id:
+            data["stepId"] = step_id
+        with open(path, "rb") as handle:
+            response = self.session.post(
+                self._url(f"/api/agent/runs/{run_id}/artifacts"),
+                headers=headers,
+                data=data,
+                files={"file": (path.rsplit("/", 1)[-1], handle, content_type)},
+                timeout=max(self.timeout, 60),
+            )
+        if response.status_code == 401:
+            raise ApiError("Неверный или отключённый API-ключ (401)")
+        response.raise_for_status()
+        return response.json()
+
     def complete_run(
         self,
         run_id: str,

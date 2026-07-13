@@ -1,7 +1,7 @@
 import "server-only"
 
 import { db } from "@/lib/db"
-import { agents, botRefs, bots, logSteps, runs, templates } from "@/lib/db/schema"
+import { agents, botRefs, bots, logSteps, runArtifacts, runs, templates } from "@/lib/db/schema"
 import { asc, desc, eq, inArray } from "drizzle-orm"
 import {
   AGENT_ONLINE_THRESHOLD_MS,
@@ -127,11 +127,24 @@ export async function getRunsForBot(botId: string): Promise<Run[]> {
   if (runRows.length === 0) return []
 
   const runIds = runRows.map((r) => r.id)
-  const stepRows = await db
-    .select()
-    .from(logSteps)
-    .where(inArray(logSteps.runId, runIds))
-    .orderBy(asc(logSteps.ts))
+  const [stepRows, artifactRows] = await Promise.all([
+    db
+      .select()
+      .from(logSteps)
+      .where(inArray(logSteps.runId, runIds))
+      .orderBy(asc(logSteps.ts)),
+    db
+      .select()
+      .from(runArtifacts)
+      .where(inArray(runArtifacts.runId, runIds))
+      .orderBy(asc(runArtifacts.createdAt)),
+  ])
+  const artifactsByRun = new Map<string, typeof artifactRows>()
+  for (const artifact of artifactRows) {
+    const list = artifactsByRun.get(artifact.runId) ?? []
+    list.push(artifact)
+    artifactsByRun.set(artifact.runId, list)
+  }
 
   const stepsByRun = new Map<string, LogStep[]>()
   for (const s of stepRows) {
@@ -161,6 +174,28 @@ export async function getRunsForBot(botId: string): Promise<Run[]> {
       stepsPassed: steps.filter((s) => s.status === "success").length,
       targetUrl: "",
       steps,
+      error: r.error,
+      successCount: r.successCount,
+      failedCount: r.failedCount,
+      agentId: r.agentId,
+      scenarioName:
+        typeof r.scenarioSnapshot === "object" && r.scenarioSnapshot
+          ? String((r.scenarioSnapshot as Record<string, unknown>).name ?? "Scenario")
+          : "Scenario",
+      scenarioVersion:
+        typeof r.scenarioSnapshot === "object" && r.scenarioSnapshot
+          ? Number((r.scenarioSnapshot as Record<string, unknown>).version ?? 1)
+          : 1,
+      artifacts: (artifactsByRun.get(r.id) ?? []).map((artifact) => ({
+        id: artifact.id,
+        kind: artifact.kind as "screenshot" | "dom" | "report",
+        worker: artifact.worker,
+        stepId: artifact.stepId,
+        contentType: artifact.contentType,
+        byteSize: artifact.byteSize,
+        createdAt: iso(artifact.createdAt) ?? "",
+        url: `/api/artifacts/${artifact.id}`,
+      })),
     }
   })
 }

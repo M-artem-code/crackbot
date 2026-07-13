@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core"
+import { boolean, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core"
 
 export const templates = pgTable("templates", {
   id: text("id").primaryKey(),
@@ -76,6 +76,21 @@ export const logSteps = pgTable("log_steps", {
   metadata: jsonb("metadata").notNull().default({}),
 })
 
+export const runArtifacts = pgTable("run_artifacts", {
+  id: text("id").primaryKey(),
+  runId: text("run_id").notNull(),
+  agentId: text("agent_id").notNull(),
+  worker: integer("worker").notNull().default(0),
+  stepId: text("step_id"),
+  kind: text("kind").notNull(),
+  pathname: text("pathname").notNull().unique(),
+  contentType: text("content_type").notNull(),
+  byteSize: integer("byte_size").notNull().default(0),
+  redacted: boolean("redacted").notNull().default(true),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const testOtpChallenges = pgTable("test_otp_challenges", {
   id: text("id").primaryKey(),
   mailboxToken: text("mailbox_token").notNull().unique(),
@@ -102,5 +117,6 @@ export type Bot = typeof bots.$inferSelect
 export type BotRef = typeof botRefs.$inferSelect
 export type Run = typeof runs.$inferSelect
 export type LogStep = typeof logSteps.$inferSelect
+export type RunArtifact = typeof runArtifacts.$inferSelect
 export type Agent = typeof agents.$inferSelect
 export type TestOtpChallenge = typeof testOtpChallenges.$inferSelect

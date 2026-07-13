@@ -105,6 +105,29 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
         result = await run_job(job, runner_cfg, log, should_cancel=should_cancel)
         buffer.flush()
 
+        uploaded = 0
+        for artifact in result.artifacts:
+            try:
+                await asyncio.to_thread(
+                    client.upload_artifact,
+                    run_id,
+                    path=str(artifact.path),
+                    kind=artifact.kind,
+                    content_type=artifact.content_type,
+                    worker=artifact.worker,
+                    step_id=artifact.step_id,
+                )
+                uploaded += 1
+            except Exception as exc:  # noqa: BLE001
+                log(
+                    "artifact-upload",
+                    f"Не удалось загрузить {artifact.kind}: {exc}",
+                    level="warn",
+                    metadata={"kind": artifact.kind, "worker": artifact.worker},
+                )
+        buffer.flush()
+        console("artifacts", f"Загружено {uploaded} из {len(result.artifacts)}")
+
         duration_ms = int((time.monotonic() - started) * 1000)
         status = result.status
         await asyncio.to_thread(
