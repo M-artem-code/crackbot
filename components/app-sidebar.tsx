@@ -6,6 +6,7 @@ import {
   BotIcon,
   LayoutDashboardIcon,
   PlusCircleIcon,
+  ServerIcon,
   SparklesIcon,
   TerminalIcon,
 } from 'lucide-react'
@@ -26,6 +27,7 @@ import {
 const navItems = [
   { title: 'Дашборд', href: '/', icon: LayoutDashboardIcon },
   { title: 'Мои боты', href: '/bots', icon: BotIcon },
+  { title: 'Агенты', href: '/agents', icon: ServerIcon },
   { title: 'Создать бота', href: '/create', icon: PlusCircleIcon },
   { title: 'AI-ассистент', href: '/assistant', icon: SparklesIcon },
 ]

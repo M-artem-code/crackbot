@@ -1,22 +1,25 @@
 import "server-only"
 
 import { db } from "@/lib/db"
-import { botRefs, bots, logSteps, runs, templates } from "@/lib/db/schema"
+import { agents, botRefs, bots, logSteps, runs, templates } from "@/lib/db/schema"
 import { asc, desc, eq, inArray } from "drizzle-orm"
-import type {
-  Bot,
-  BotStatus,
-  DailyStat,
-  DashboardStats,
-  LogStep,
-  RecentRun,
-  RefStatus,
-  Run,
-  RunStatus,
-  ScenarioStep,
-  StepStatus,
-  TemplateField,
-  TemplateInfo,
+import {
+  AGENT_ONLINE_THRESHOLD_MS,
+  type AgentInfo,
+  type AgentStatus,
+  type Bot,
+  type BotStatus,
+  type DailyStat,
+  type DashboardStats,
+  type LogStep,
+  type RecentRun,
+  type RefStatus,
+  type Run,
+  type RunStatus,
+  type ScenarioStep,
+  type StepStatus,
+  type TemplateField,
+  type TemplateInfo,
 } from "@/lib/mock-data"
 
 function iso(d: Date | null): string | null {
@@ -198,6 +201,40 @@ export async function getDailyStats(): Promise<DailyStat[]> {
     days.push({ date: label, success, failed })
   }
   return days
+}
+
+// Список агентов-раннеров с вычисленным статусом online/offline/disabled
+// и количеством активных прогонов, закреплённых за каждым агентом.
+export async function getAgents(): Promise<AgentInfo[]> {
+  const [agentRows, runRows] = await Promise.all([
+    db.select().from(agents).orderBy(desc(agents.createdAt)),
+    db.select().from(runs).where(eq(runs.status, "running")),
+  ])
+
+  const activeByAgent = new Map<string, number>()
+  for (const r of runRows) {
+    if (!r.agentId) continue
+    activeByAgent.set(r.agentId, (activeByAgent.get(r.agentId) ?? 0) + 1)
+  }
+
+  const now = Date.now()
+  return agentRows.map((a) => {
+    const disabled = a.status === "disabled"
+    const lastSeen = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0
+    const online = !disabled && lastSeen > 0 && now - lastSeen < AGENT_ONLINE_THRESHOLD_MS
+    const status: AgentStatus = disabled ? "disabled" : online ? "online" : "offline"
+    return {
+      id: a.id,
+      name: a.name,
+      os: a.os,
+      apiKey: a.apiKey,
+      status,
+      disabled,
+      activeRuns: activeByAgent.get(a.id) ?? 0,
+      lastSeenAt: iso(a.lastSeenAt),
+      createdAt: iso(a.createdAt),
+    }
+  })
 }
 
 export async function getDashboardStats(): Promise<DashboardStats> {

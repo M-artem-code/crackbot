@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import type { BotStatus, RefStatus, RunStatus } from "@/lib/mock-data"
+import type { AgentStatus, BotStatus, RefStatus, RunStatus } from "@/lib/mock-data"
 
 const botStatusConfig: Record<BotStatus, { label: string; dot: string; pulse?: boolean }> = {
   active: { label: "Активен", dot: "bg-primary", pulse: true },
@@ -30,6 +30,29 @@ export function RunStatusBadge({ status }: { status: RunStatus }) {
   const cfg = runStatusConfig[status] ?? runStatusConfig.queued
   return (
     <Badge variant="outline" className={cn("font-mono text-[11px]", cfg.className)}>
+      {cfg.label}
+    </Badge>
+  )
+}
+
+const agentStatusConfig: Record<
+  AgentStatus,
+  { label: string; dot: string; pulse?: boolean; className?: string }
+> = {
+  online: { label: "Онлайн", dot: "bg-primary", pulse: true, className: "border-primary/40 text-primary" },
+  offline: { label: "Оффлайн", dot: "bg-muted-foreground", className: "text-muted-foreground" },
+  disabled: {
+    label: "Отключён",
+    dot: "bg-destructive",
+    className: "border-destructive/40 text-destructive",
+  },
+}
+
+export function AgentStatusBadge({ status }: { status: AgentStatus }) {
+  const cfg = agentStatusConfig[status] ?? agentStatusConfig.offline
+  return (
+    <Badge variant="outline" className={cn("gap-1.5 font-mono text-[11px]", cfg.className)}>
+      <span className={cn("size-1.5 rounded-full", cfg.dot, cfg.pulse && "animate-status-pulse")} />
       {cfg.label}
     </Badge>
   )
