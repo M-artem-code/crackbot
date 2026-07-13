@@ -1,11 +1,12 @@
 'use client'
 
 import * as React from 'react'
-import { DatabaseIcon, ExternalLinkIcon, PlayIcon } from 'lucide-react'
+import { DatabaseIcon, ExternalLinkIcon, PlayIcon, SquareIcon } from 'lucide-react'
+import useSWR from 'swr'
 
 import { useRouter } from 'next/navigation'
 
-import { enqueueRun } from '@/app/actions/bots'
+import { cancelRun, enqueueRun } from '@/app/actions/bots'
 import { PageHeader } from '@/components/page-header'
 import { RunLog } from '@/components/bots/run-log'
 import { BotStatusBadge, RunStatusBadge } from '@/components/status-badge'
@@ -38,82 +39,66 @@ import {
   type Run,
 } from '@/lib/mock-data'
 
-const LIVE_DURATIONS = [1240, 380, 210, 460, 180, 520, 640, 2600, 940, 720, 1100]
+const fetcher = async (url: string): Promise<Run> => {
+  const response = await fetch(url, { cache: 'no-store' })
+  if (!response.ok) throw new Error('Не удалось обновить прогон')
+  return response.json() as Promise<Run>
+}
 
 export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
   const scenario = bot.scenarioSteps
-
-  function makePendingSteps(): LogStep[] {
-    return scenario.map((s, i) => ({
-      id: `live-${i}`,
-      label: s.label,
-      status: 'pending' as const,
-      durationMs: 0,
-    }))
-  }
-
-  const [liveSteps, setLiveSteps] = React.useState<LogStep[] | null>(null)
-  const [isRunning, setIsRunning] = React.useState(false)
+  const [activeRunId, setActiveRunId] = React.useState<string | null>(
+    botRuns.find((run) => run.status === 'running' || run.status === 'queued')?.id ?? null,
+  )
+  const [isStarting, setIsStarting] = React.useState(false)
+  const [isCancelling, setIsCancelling] = React.useState(false)
   const [selectedRun, setSelectedRun] = React.useState<Run | null>(
     botRuns[0] ?? null,
   )
   const [activeTab, setActiveTab] = React.useState('overview')
-  const timeoutsRef = React.useRef<ReturnType<typeof setTimeout>[]>([])
   const router = useRouter()
+  const { data: liveRun } = useSWR(
+    activeRunId ? `/api/runs/${activeRunId}` : null,
+    fetcher,
+    {
+      refreshInterval: (data) =>
+        data && ['success', 'failed', 'cancelled'].includes(data.status) ? 0 : 1000,
+      revalidateOnFocus: true,
+    },
+  )
+  const isRunning = Boolean(
+    activeRunId && (!liveRun || liveRun.status === 'queued' || liveRun.status === 'running'),
+  )
 
   React.useEffect(() => {
-    return () => {
-      timeoutsRef.current.forEach(clearTimeout)
+    if (liveRun && ['success', 'failed', 'cancelled'].includes(liveRun.status)) {
+      setSelectedRun(liveRun)
+      router.refresh()
     }
-  }, [])
+  }, [liveRun, router])
 
-  function startLiveRun() {
-    if (isRunning) return
-    setIsRunning(true)
+  async function startLiveRun() {
+    if (isRunning || isStarting) return
+    setIsStarting(true)
     setActiveTab('logs')
-    const steps = makePendingSteps()
-    setLiveSteps([...steps])
+    try {
+      const { runId } = await enqueueRun(bot.id)
+      setActiveRunId(runId)
+      setSelectedRun(null)
+    } finally {
+      setIsStarting(false)
+    }
+  }
 
-    // Ставим реальный прогон в очередь — локальный агент подхватит его.
-    void enqueueRun(bot.id)
-      .then(() => router.refresh())
-      .catch(() => {})
-
-    let elapsed = 300
-    steps.forEach((_, i) => {
-      // Шаг переходит в running
-      timeoutsRef.current.push(
-        setTimeout(() => {
-          setLiveSteps((prev) =>
-            prev
-              ? prev.map((s, j) => (j === i ? { ...s, status: 'running' } : s))
-              : prev,
-          )
-        }, elapsed),
-      )
-      elapsed += LIVE_DURATIONS[i] ?? 500
-      // Шаг завершается успехом
-      timeoutsRef.current.push(
-        setTimeout(() => {
-          setLiveSteps((prev) =>
-            prev
-              ? prev.map((s, j) =>
-                  j === i
-                    ? {
-                        ...s,
-                        status: 'success',
-                        durationMs: LIVE_DURATIONS[i] ?? 500,
-                      }
-                    : s,
-                )
-              : prev,
-          )
-          if (i === steps.length - 1) {
-            setIsRunning(false)
-          }
-        }, elapsed),
-      )
-    })
+  async function stopLiveRun() {
+    if (!activeRunId || isCancelling) return
+    setIsCancelling(true)
+    try {
+      await cancelRun(activeRunId)
+      router.refresh()
+    } finally {
+      setIsCancelling(false)
+    }
   }
 
   return (
@@ -124,14 +109,30 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
         actions={
           <>
             <BotStatusBadge status={bot.status} />
-            <Button size="sm" onClick={startLiveRun} disabled={isRunning}>
-              {isRunning ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <PlayIcon data-icon="inline-start" />
-              )}
-              {isRunning ? 'Выполняется...' : 'Запустить проверку'}
-            </Button>
+            {isRunning ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={stopLiveRun}
+                disabled={isCancelling}
+              >
+                {isCancelling ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <SquareIcon data-icon="inline-start" />
+                )}
+                {isCancelling ? 'Останавливаем...' : 'Остановить'}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={startLiveRun} disabled={isStarting}>
+                {isStarting ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <PlayIcon data-icon="inline-start" />
+                )}
+                {isStarting ? 'Ставим в очередь...' : 'Запустить проверку'}
+              </Button>
+            )}
           </>
         }
       />
@@ -275,9 +276,11 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                           key={run.id}
                           className="cursor-pointer"
                           onClick={() => {
-                            setSelectedRun(run)
-                            setLiveSteps(null)
-                            setActiveTab('logs')
+                  setSelectedRun(run)
+                  setActiveRunId(
+                    run.status === 'running' || run.status === 'queued' ? run.id : null,
+                  )
+                  setActiveTab('logs')
                           }}
                         >
                           <TableCell className="font-mono text-xs">{run.id}</TableCell>
@@ -304,7 +307,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
 
           {/* ------------------------------ Логи ------------------------------ */}
           <TabsContent value="logs" className="flex flex-col gap-4">
-            {liveSteps ? (
+            {liveRun ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -316,7 +319,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RunLog steps={liveSteps} />
+                    <RunLog steps={liveRun.steps} />
                 </CardContent>
               </Card>
             ) : selectedRun ? (

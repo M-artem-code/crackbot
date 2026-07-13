@@ -165,6 +165,15 @@ export async function getRunsForBot(botId: string): Promise<Run[]> {
   })
 }
 
+export async function getRunDetail(runId: string): Promise<Run | null> {
+  const [runRow] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1)
+  if (!runRow) return null
+
+  const [run] = await getRunsForBot(runRow.botId)
+    .then((items) => [items.find((item) => item.id === runId)])
+  return run ?? null
+}
+
 export async function getRecentRuns(limit = 8): Promise<RecentRun[]> {
   const [runRows, botRows] = await Promise.all([
     db.select().from(runs).orderBy(desc(runs.createdAt)).limit(limit),

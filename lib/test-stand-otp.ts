@@ -28,7 +28,7 @@ export function createMailboxIdentity(): {
   return {
     id,
     token,
-    email: `automation+${token.slice(0, 12)}@crackbot.test`,
+    email: `automation+${token.slice(0, 12).toLowerCase()}@crackbot.test`,
     otp,
     otpHash: hashOtp(token, otp),
     expiresAt: new Date(Date.now() + TEST_OTP_TTL_MS),

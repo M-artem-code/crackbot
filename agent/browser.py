@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import os
 import random
 from pathlib import Path
 from typing import Optional
@@ -56,7 +57,12 @@ class Browser:
             args.append(f"--proxy-server={proxy_url}")
 
         self.log(f"Запуск браузера (headless={self.headless}, proxy={'да' if self.proxy else 'нет'})")
-        self._browser = await uc.start(headless=self.headless, browser_args=args)
+        executable_path = os.environ.get("BROWSER_EXECUTABLE_PATH")
+        self._browser = await uc.start(
+            headless=self.headless,
+            browser_args=args,
+            browser_executable_path=executable_path,
+        )
         return self._browser
 
     async def new_page(self, url: str) -> uc.Tab:

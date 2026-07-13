@@ -162,9 +162,11 @@ export function validateScenarioDefinition(value: unknown): ScenarioValidationRe
       if (["fill", "assertText", "assertUrl"].includes(type) && typeof rawStep.value !== "string") {
         errors.push(`${path}.value обязателен для ${type}`)
       }
-      if (rawStep.timeoutMs !== undefined &&
-          (!Number.isInteger(rawStep.timeoutMs) || rawStep.timeoutMs < 100 || rawStep.timeoutMs > 300_000)) {
-        errors.push(`${path}.timeoutMs должен быть от 100 до 300000`)
+      if (rawStep.timeoutMs !== undefined) {
+        const timeoutMs = Number(rawStep.timeoutMs)
+        if (!Number.isInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 300_000) {
+          errors.push(`${path}.timeoutMs должен быть от 100 до 300000`)
+        }
       }
       if (rawStep.retry !== undefined) {
         if (!isRecord(rawStep.retry) ||

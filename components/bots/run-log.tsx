@@ -16,6 +16,11 @@ export function RunLog({ steps }: { steps: LogStep[] }) {
         <span className="ml-2 text-muted-foreground">runner — лог прогона</span>
       </div>
       <div className="flex flex-col gap-0.5 p-3">
+        {steps.length === 0 ? (
+          <p className="px-2 py-4 text-center text-muted-foreground">
+            Ожидаем первые шаги от локального агента...
+          </p>
+        ) : null}
         {steps.map((step, i) => (
           <div
             key={step.id}
@@ -48,6 +53,9 @@ export function RunLog({ steps }: { steps: LogStep[] }) {
                     {String(i + 1).padStart(2, '0')}
                   </span>
                   {step.label}
+                  {step.attempt && step.attempt > 1 ? (
+                    <span className="ml-2 text-warning">попытка {step.attempt}</span>
+                  ) : null}
                 </span>
                 {step.status === 'success' || step.status === 'failed' ? (
                   <span className="shrink-0 text-muted-foreground/60">

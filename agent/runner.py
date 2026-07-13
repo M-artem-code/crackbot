@@ -323,8 +323,8 @@ async def run_job(job: Dict[str, Any], cfg: RunnerConfig, log: LogFn, should_can
     log("start", f"Сценарий v{scenario.version}: {scenario.name}; воркеров={cfg.workers}")
     bot = job.get("bot") or {}
     bot_config = bot.get("config") or {}
-    if bot_config.get("mail_provider") == "test-stand":
-        target_url = str((job.get("ref") or {}).get("url") or bot.get("targetUrl") or "")
+    target_url = str((job.get("ref") or {}).get("url") or bot.get("targetUrl") or "")
+    if bot_config.get("mail_provider") == "test-stand" or "/test-stand/" in target_url:
         origin = target_url.split("/test-stand/", 1)[0].rstrip("/")
         mail = TestStandMailClient(origin, log_func=lambda message: log("mail", message))
     else:
