@@ -24,6 +24,9 @@ class CrackbotClient:
         self.server_url = server_url.rstrip("/")
         self.timeout = timeout
         self.session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(max_retries=3)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
         self.session.headers.update(
             {
                 "Authorization": f"Bearer {api_key}",
