@@ -103,13 +103,21 @@ def _strategy_selectors(strategy: LocatorStrategy) -> List[str]:
     return []
 
 
-async def _element_by_strategy(tab: Any, strategy: LocatorStrategy) -> Any:
+async def _element_by_strategy(
+    tab: Any,
+    strategy: LocatorStrategy,
+    timeout_seconds: float = 0.5,
+) -> Any:
     if strategy.kind == "text":
-        return await tab.find(strategy.value or "", best_match=not strategy.exact)
+        return await tab.find(
+            strategy.value or "",
+            best_match=not strategy.exact,
+            timeout=timeout_seconds,
+        )
     if strategy.kind == "role":
         for selector in _strategy_selectors(strategy):
             try:
-                elements = await tab.select_all(selector)
+                elements = await tab.select_all(selector, timeout=timeout_seconds)
                 for element in elements or []:
                     text = (getattr(element, "text", "") or "").strip().lower()
                     name = (strategy.name or "").strip().lower()
@@ -118,23 +126,31 @@ async def _element_by_strategy(tab: Any, strategy: LocatorStrategy) -> Any:
             except Exception:  # noqa: BLE001
                 continue
         try:
-            return await tab.find(strategy.name or "", best_match=not strategy.exact)
+            return await tab.find(
+                strategy.name or "",
+                best_match=not strategy.exact,
+                timeout=timeout_seconds,
+            )
         except Exception:  # noqa: BLE001
             return None
     if strategy.kind == "label":
         try:
-            label = await tab.find(strategy.value or "", best_match=not strategy.exact)
+            label = await tab.find(
+                strategy.value or "",
+                best_match=not strategy.exact,
+                timeout=timeout_seconds,
+            )
             if label:
                 label_for = getattr(label, "attrs", {}).get("for") if isinstance(getattr(label, "attrs", None), dict) else None
                 if label_for:
-                    return await tab.select(f'#{label_for}', timeout=1)
+                    return await tab.select(f'#{label_for}', timeout=timeout_seconds)
         except Exception:  # noqa: BLE001
             pass
     for selector in _strategy_selectors(strategy):
         if not selector:
             continue
         try:
-            element = await tab.select(selector, timeout=1)
+            element = await tab.select(selector, timeout=timeout_seconds)
             if element:
                 return element
         except Exception:  # noqa: BLE001
@@ -148,7 +164,13 @@ async def find_with_fallback(tab: Any, strategies: List[LocatorStrategy], timeou
     while time.monotonic() < deadline:
         for strategy in strategies:
             attempts += 1
-            element = await _element_by_strategy(tab, strategy)
+            remaining = max(0.05, deadline - time.monotonic())
+            per_strategy_timeout = min(0.5, remaining)
+            element = await _element_by_strategy(
+                tab,
+                strategy,
+                timeout_seconds=per_strategy_timeout,
+            )
             if element:
                 return element, strategy, attempts
         await asyncio.sleep(0.25)

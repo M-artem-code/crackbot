@@ -40,7 +40,7 @@ async def execute(base_url: str, assertion: str = "Welcome"):
 async def main():
     base_url = os.environ.get("TEST_STAND_URL", "http://localhost:3000/test-stand/register")
     for attempt in range(1, 4):
-        result, _ = await execute(base_url)
+        result, messages = await execute(base_url)
         if result.status != "success":
             raise RuntimeError(
                 f"Позитивный E2E #{attempt} завершился: {result.status}: {result.errors}; logs={messages}"
@@ -50,9 +50,13 @@ async def main():
     result, messages = await execute(base_url, "This text must never exist")
     if result.status != "failed":
         raise RuntimeError(f"Негативный E2E должен завершаться failed, получено {result.status}")
-    failed = [entry for entry in messages if entry.get("level") == "error"]
-    if not failed or not failed[-1].get("metadata", {}).get("currentUrl"):
-        raise RuntimeError("Негативный E2E не сформировал диагностический отчёт")
+    failed_steps = [
+        entry
+        for entry in messages
+        if entry.get("level") == "error" and entry.get("step") == "success"
+    ]
+    if not failed_steps or not failed_steps[-1].get("metadata", {}).get("currentUrl"):
+        raise RuntimeError(f"Негативный E2E не сформировал диагностический отчёт: {messages}")
     print("negative-e2e: failed-with-diagnostics")
 
 
