@@ -29,7 +29,6 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -39,8 +38,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { BotSettingsForm } from '@/components/bots/bot-settings-form'
 import {
   formatDateTime,
   formatDuration,
@@ -447,73 +445,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
 
           {/* ---------------------------- Настройки ---------------------------- */}
           <TabsContent value="settings">
-            <Card className="max-w-2xl">
-              <CardHeader>
-                <CardTitle>Настройки бота</CardTitle>
-                <CardDescription>
-                  Параметры сценария и поведения при ошибках
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="bot-name">Имя бота</FieldLabel>
-                    <Input id="bot-name" defaultValue={bot.name} />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="bot-url">Целевой URL</FieldLabel>
-                    <Input id="bot-url" defaultValue={bot.targetUrl} className="font-mono" />
-                    <FieldDescription>
-                      Базовый адрес деплоя, который проверяет бот
-                    </FieldDescription>
-                  </Field>
-                  <Field orientation="horizontal">
-                    <div className="flex flex-col gap-0.5">
-                      <FieldLabel htmlFor="block-resources">
-                        Блокировать ресурсы
-                      </FieldLabel>
-                      <FieldDescription>
-                        Не грузить картинки/шрифты для ускорения прогона
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      id="block-resources"
-                      defaultChecked={Boolean(bot.config.blockResources)}
-                    />
-                  </Field>
-                  <Field orientation="horizontal">
-                    <div className="flex flex-col gap-0.5">
-                      <FieldLabel htmlFor="stealth">Stealth-режим</FieldLabel>
-                      <FieldDescription>
-                        Маскировка автоматизации (stealth.js, случайное окно)
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      id="stealth"
-                      defaultChecked={Boolean(bot.config.stealth)}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="parallel">Воркеры (параллельные браузеры)</FieldLabel>
-                    <Input
-                      id="parallel"
-                      type="number"
-                      min={1}
-                      max={10}
-                      defaultValue={bot.workers}
-                      className="max-w-24 font-mono"
-                    />
-                    <FieldDescription>
-                      Количество одновременных браузеров на локальном раннере
-                    </FieldDescription>
-                  </Field>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline">Отмена</Button>
-                    <Button>Сохранить</Button>
-                  </div>
-                </FieldGroup>
-              </CardContent>
-            </Card>
+            <BotSettingsForm bot={bot} />
           </TabsContent>
         </Tabs>
       </main>
