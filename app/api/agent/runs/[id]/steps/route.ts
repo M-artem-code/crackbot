@@ -1,7 +1,7 @@
 import { db } from "@/lib/db"
 import { logSteps, runs } from "@/lib/db/schema"
 import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 
 export const dynamic = "force-dynamic"
 
@@ -28,7 +28,7 @@ export async function POST(
 
   const { id: runId } = await params
 
-  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1)
+  const [run] = await db.select().from(runs).where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId))).limit(1)
   if (!run) {
     return Response.json({ error: "Прогон не найден" }, { status: 404 })
   }
@@ -52,6 +52,7 @@ export async function POST(
     .slice(0, 100)
     .filter((s) => s && (s.step || s.message))
     .map((s) => ({
+      workspaceId: agent.workspaceId,
       runId,
       worker: Math.max(0, Math.min(100, Math.trunc(Number(s.worker) || 0))),
       level: allowedLevels.has(s.level ?? "") ? s.level! : "info",

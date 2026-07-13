@@ -1,353 +1,80 @@
 'use server'
 
+import { and, desc, eq } from 'drizzle-orm'
+import { revalidatePath } from 'next/cache'
+
 import { db } from '@/lib/db'
 import { botRefs, bots, runs, scenarioVersions, templates } from '@/lib/db/schema'
 import { assertScenarioDefinition } from '@/lib/scenario/schema'
-import { desc, eq } from 'drizzle-orm'
-import { revalidatePath } from 'next/cache'
+import { requireWorkspace } from '@/lib/workspace'
 
-function genId(prefix: string): string {
-  return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
-}
+function genId(prefix: string) { return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}` }
+function scopedBot(workspaceId: string, botId: string) { return and(eq(bots.id, botId), eq(bots.workspaceId, workspaceId)) }
 
-export interface CreateBotInput {
-  name: string
-  targetUrl: string
-  templateId: string
-  workers?: number
-  config?: Record<string, unknown>
-  seedRefs?: string[]
-}
+export interface CreateBotInput { name: string; targetUrl: string; templateId: string; workers?: number; config?: Record<string, unknown>; seedRefs?: string[] }
 
-export async function createBot(input: CreateBotInput): Promise<{ id: string }> {
-  const name = input.name.trim()
-  const targetUrl = input.targetUrl.trim()
-  if (!name) throw new Error('Имя бота обязательно')
-  if (!targetUrl) throw new Error('URL деплоя обязателен')
-
-  const tpl = await db
-    .select()
-    .from(templates)
-    .where(eq(templates.id, input.templateId))
-    .limit(1)
-  if (tpl.length === 0) throw new Error('Шаблон не найден')
-
-  const botId = genId('bot')
-  const mergedConfig = {
-    ...(tpl[0].defaultConfig as Record<string, unknown>),
-    ...(input.config ?? {}),
-  }
-
-  const initialScenario = assertScenarioDefinition(tpl[0].scenarioDefinition)
-  const initialVersionId = genId('sv')
+export async function createBot(input: CreateBotInput) {
+  const { workspace } = await requireWorkspace(); const name = input.name.trim(); const targetUrl = input.targetUrl.trim()
+  if (!name) throw new Error('Имя бота обязательно'); if (!targetUrl) throw new Error('URL деплоя обязателен')
+  const [tpl] = await db.select().from(templates).where(eq(templates.id, input.templateId)).limit(1); if (!tpl) throw new Error('Шаблон не найден')
+  const botId = genId('bot'); const versionId = genId('sv'); const scenario = assertScenarioDefinition(tpl.scenarioDefinition)
   await db.transaction(async (tx) => {
-    await tx.insert(scenarioVersions).values({
-      id: initialVersionId,
-      botId,
-      version: 1,
-      snapshot: initialScenario,
-      author: 'system',
-      changeSummary: 'Начальная версия из шаблона',
-    })
-    await tx.insert(bots).values({
-      id: botId,
-      name,
-      templateId: input.templateId,
-      targetUrl,
-      status: 'idle',
-      workers: input.workers ?? 1,
-      config: mergedConfig,
-      scenarioPublished: initialScenario,
-      scenarioStatus: 'published',
-      publishedScenarioVersionId: initialVersionId,
-    })
+    await tx.insert(scenarioVersions).values({ id: versionId, workspaceId: workspace.id, botId, version: 1, snapshot: scenario, author: 'system', changeSummary: 'Начальная версия из шаблона' })
+    await tx.insert(bots).values({ id: botId, workspaceId: workspace.id, name, templateId: input.templateId, targetUrl, status: 'idle', workers: input.workers ?? 1, config: { ...(tpl.defaultConfig as Record<string, unknown>), ...(input.config ?? {}) }, scenarioPublished: scenario, scenarioStatus: 'published', publishedScenarioVersionId: versionId })
   })
-
-  const seeds = (input.seedRefs ?? [])
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0)
-  if (seeds.length > 0) {
-    await db.insert(botRefs).values(
-      seeds.map((url) => ({
-        botId,
-        url,
-        successLimit: 10,
-        successCount: 0,
-        failedCount: 0,
-        status: 'active' as const,
-      })),
-    )
-  }
-
-  revalidatePath('/bots')
-  revalidatePath('/')
-  return { id: botId }
+  const seeds = (input.seedRefs ?? []).map((s) => s.trim()).filter(Boolean)
+  if (seeds.length) await db.insert(botRefs).values(seeds.map((url) => ({ workspaceId: workspace.id, botId, url, successLimit: 10, status: 'active' as const })))
+  revalidatePath('/'); revalidatePath('/bots'); return { id: botId }
 }
 
-export async function enqueueRun(botId: string): Promise<{ runId: string }> {
-  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
-  if (!bot) throw new Error('Бот не найден')
-
-  const [template] = await db
-    .select()
-    .from(templates)
-    .where(eq(templates.id, bot.templateId))
-    .limit(1)
-  if (!template) throw new Error('Шаблон бота не найден')
-
-  const scenarioSnapshot = assertScenarioDefinition(
-    bot.scenarioPublished ?? template.scenarioDefinition,
-  )
-  const runId = genId('run')
-  await db.insert(runs).values({
-    id: runId,
-    botId,
-    status: 'queued',
-    totalWorkers: bot.workers,
-    scenarioVersionId: bot.publishedScenarioVersionId,
-    scenarioSnapshot,
-  })
-  await db
-    .update(bots)
-    .set({ status: 'active', updatedAt: new Date() })
-    .where(eq(bots.id, botId))
-
-  revalidatePath(`/bots/${botId}`)
-  revalidatePath('/bots')
-  revalidatePath('/')
-  return { runId }
+export async function enqueueRun(botId: string) {
+  const { workspace } = await requireWorkspace(); const [bot] = await db.select().from(bots).where(scopedBot(workspace.id, botId)).limit(1); if (!bot) throw new Error('Бот не найден')
+  const [template] = await db.select().from(templates).where(eq(templates.id, bot.templateId)).limit(1); if (!template) throw new Error('Шаблон бота не найден')
+  const runId = genId('run'); await db.insert(runs).values({ id: runId, workspaceId: workspace.id, botId, status: 'queued', totalWorkers: bot.workers, scenarioVersionId: bot.publishedScenarioVersionId, scenarioSnapshot: assertScenarioDefinition(bot.scenarioPublished ?? template.scenarioDefinition) })
+  await db.update(bots).set({ status: 'active', updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath(`/bots/${botId}`); revalidatePath('/bots'); revalidatePath('/'); return { runId }
 }
 
-export async function saveScenarioDraft(
-  botId: string,
-  value: unknown,
-): Promise<{ ok: true }> {
-  const scenario = assertScenarioDefinition(value)
-  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
-  if (!bot) throw new Error('Бот не найден')
-
-  await db
-    .update(bots)
-    .set({ scenarioDraft: scenario, scenarioStatus: 'draft', updatedAt: new Date() })
-    .where(eq(bots.id, botId))
-  revalidatePath(`/bots/${botId}`)
-  return { ok: true }
+export async function saveScenarioDraft(botId: string, value: unknown) {
+  const { workspace } = await requireWorkspace(); const scenario = assertScenarioDefinition(value)
+  const [bot] = await db.select({ id: bots.id }).from(bots).where(scopedBot(workspace.id, botId)).limit(1); if (!bot) throw new Error('Бот не найден')
+  await db.update(bots).set({ scenarioDraft: scenario, scenarioStatus: 'draft', updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath(`/bots/${botId}`); return { ok: true as const }
 }
 
-export async function publishScenario(
-  botId: string,
-  value: unknown,
-  changeSummary = '',
-): Promise<{ ok: true; version: number }> {
-  const scenario = assertScenarioDefinition(value)
-  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
-  if (!bot) throw new Error('Бот не найден')
-  const [latest] = await db
-    .select({ version: scenarioVersions.version })
-    .from(scenarioVersions)
-    .where(eq(scenarioVersions.botId, botId))
-    .orderBy(desc(scenarioVersions.version))
-    .limit(1)
-  const version = (latest?.version ?? 0) + 1
-  const versionId = genId('sv')
-
-  await db.transaction(async (tx) => {
-    await tx.insert(scenarioVersions).values({
-      id: versionId,
-      botId,
-      version,
-      snapshot: scenario,
-      author: 'dashboard',
-      changeSummary: changeSummary.trim() || `Опубликована версия ${version}`,
-    })
-    await tx
-      .update(bots)
-      .set({
-        scenarioPublished: scenario,
-        scenarioDraft: null,
-        scenarioStatus: 'published',
-        publishedScenarioVersionId: versionId,
-        updatedAt: new Date(),
-      })
-      .where(eq(bots.id, botId))
-  })
-  revalidatePath(`/bots/${botId}`)
-  return { ok: true, version }
+export async function publishScenario(botId: string, value: unknown, changeSummary = '') {
+  const { workspace } = await requireWorkspace(); const scenario = assertScenarioDefinition(value)
+  const [bot] = await db.select({ id: bots.id }).from(bots).where(scopedBot(workspace.id, botId)).limit(1); if (!bot) throw new Error('Бот не найден')
+  const [latest] = await db.select({ version: scenarioVersions.version }).from(scenarioVersions).where(and(eq(scenarioVersions.botId, botId), eq(scenarioVersions.workspaceId, workspace.id))).orderBy(desc(scenarioVersions.version)).limit(1)
+  const version = (latest?.version ?? 0) + 1; const versionId = genId('sv')
+  await db.transaction(async (tx) => { await tx.insert(scenarioVersions).values({ id: versionId, workspaceId: workspace.id, botId, version, snapshot: scenario, author: 'dashboard', changeSummary: changeSummary.trim() || `Опубликована версия ${version}` }); await tx.update(bots).set({ scenarioPublished: scenario, scenarioDraft: null, scenarioStatus: 'published', publishedScenarioVersionId: versionId, updatedAt: new Date() }).where(scopedBot(workspace.id, botId)) })
+  revalidatePath(`/bots/${botId}`); return { ok: true as const, version }
 }
 
-export async function rollbackScenario(
-  botId: string,
-  sourceVersionId: string,
-): Promise<{ ok: true; version: number }> {
-  const [source] = await db
-    .select()
-    .from(scenarioVersions)
-    .where(eq(scenarioVersions.id, sourceVersionId))
-    .limit(1)
-  if (!source || source.botId !== botId) throw new Error('Версия сценария не найдена')
-  const [latest] = await db
-    .select({ version: scenarioVersions.version })
-    .from(scenarioVersions)
-    .where(eq(scenarioVersions.botId, botId))
-    .orderBy(desc(scenarioVersions.version))
-    .limit(1)
-  const snapshot = assertScenarioDefinition(source.snapshot)
-  const version = (latest?.version ?? 0) + 1
-  const versionId = genId('sv')
-
-  await db.transaction(async (tx) => {
-    await tx.insert(scenarioVersions).values({
-      id: versionId,
-      botId,
-      version,
-      snapshot,
-      author: 'dashboard',
-      changeSummary: `Rollback к версии ${source.version}`,
-      sourceVersionId: source.id,
-    })
-    await tx
-      .update(bots)
-      .set({
-        scenarioPublished: snapshot,
-        scenarioDraft: null,
-        scenarioStatus: 'published',
-        publishedScenarioVersionId: versionId,
-        updatedAt: new Date(),
-      })
-      .where(eq(bots.id, botId))
-  })
-  revalidatePath(`/bots/${botId}`)
-  return { ok: true, version }
+export async function rollbackScenario(botId: string, sourceVersionId: string) {
+  const { workspace } = await requireWorkspace(); const [source] = await db.select().from(scenarioVersions).where(and(eq(scenarioVersions.id, sourceVersionId), eq(scenarioVersions.botId, botId), eq(scenarioVersions.workspaceId, workspace.id))).limit(1); if (!source) throw new Error('Версия сценария не найдена')
+  return publishScenario(botId, source.snapshot, `Rollback к версии ${source.version}`)
 }
 
-export async function testScenarioStep(
-  botId: string,
-  value: unknown,
-  stepIndex: number,
-): Promise<{ runId: string }> {
-  const scenario = assertScenarioDefinition(value)
-  if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex >= scenario.steps.length) {
-    throw new Error('Шаг для теста не найден')
-  }
-  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
-  if (!bot) throw new Error('Бот не найден')
-
-  const scenarioSnapshot = assertScenarioDefinition({
-    ...scenario,
-    name: `${scenario.name} · test step ${stepIndex + 1}`,
-    steps: scenario.steps.slice(0, stepIndex + 1),
-  })
-  const runId = genId('run')
-  await db.insert(runs).values({
-    id: runId,
-    botId,
-    status: 'queued',
-    totalWorkers: 1,
-    scenarioSnapshot,
-  })
-  revalidatePath(`/bots/${botId}`)
-  return { runId }
+export async function testScenarioStep(botId: string, value: unknown, stepIndex: number) {
+  const { workspace } = await requireWorkspace(); const scenario = assertScenarioDefinition(value); if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex >= scenario.steps.length) throw new Error('Шаг для теста не найден')
+  const [bot] = await db.select({ id: bots.id }).from(bots).where(scopedBot(workspace.id, botId)).limit(1); if (!bot) throw new Error('Бот не найден')
+  const snapshot = assertScenarioDefinition({ ...scenario, name: `${scenario.name} · test step ${stepIndex + 1}`, steps: scenario.steps.slice(0, stepIndex + 1) }); const runId = genId('run')
+  await db.insert(runs).values({ id: runId, workspaceId: workspace.id, botId, status: 'queued', totalWorkers: 1, scenarioSnapshot: snapshot }); revalidatePath(`/bots/${botId}`); return { runId }
 }
 
-export async function cancelRun(runId: string): Promise<{ cancelled: boolean }> {
-  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1)
-  if (!run) throw new Error('Прогон не найден')
-  if (['success', 'failed', 'cancelled'].includes(run.status)) return { cancelled: false }
-
-  if (run.status === 'queued') {
-    await db
-      .update(runs)
-      .set({ status: 'cancelled', cancelRequestedAt: new Date(), finishedAt: new Date() })
-      .where(eq(runs.id, runId))
-    await db
-      .update(bots)
-      .set({ status: 'idle', updatedAt: new Date() })
-      .where(eq(bots.id, run.botId))
-  } else {
-    await db
-      .update(runs)
-      .set({ cancelRequestedAt: new Date() })
-      .where(eq(runs.id, runId))
-  }
-
-  revalidatePath(`/bots/${run.botId}`)
-  return { cancelled: true }
+export async function cancelRun(runId: string) {
+  const { workspace } = await requireWorkspace(); const runScope = and(eq(runs.id, runId), eq(runs.workspaceId, workspace.id)); const [run] = await db.select().from(runs).where(runScope).limit(1); if (!run) throw new Error('Прогон не найден'); if (['success', 'failed', 'cancelled'].includes(run.status)) return { cancelled: false }
+  if (run.status === 'queued') { await db.update(runs).set({ status: 'cancelled', cancelRequestedAt: new Date(), finishedAt: new Date() }).where(runScope); await db.update(bots).set({ status: 'idle', updatedAt: new Date() }).where(scopedBot(workspace.id, run.botId)) } else await db.update(runs).set({ cancelRequestedAt: new Date() }).where(runScope)
+  revalidatePath(`/bots/${run.botId}`); return { cancelled: true }
 }
 
-export async function updateBotStatus(
-  botId: string,
-  status: 'idle' | 'active' | 'paused' | 'error',
-): Promise<void> {
-  await db
-    .update(bots)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(bots.id, botId))
-  revalidatePath('/bots')
-  revalidatePath(`/bots/${botId}`)
-}
+export async function updateBotStatus(botId: string, status: 'idle' | 'active' | 'paused' | 'error') { const { workspace } = await requireWorkspace(); await db.update(bots).set({ status, updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath('/bots'); revalidatePath(`/bots/${botId}`) }
 
-export interface UpdateBotSettingsInput {
-  name: string
-  targetUrl: string
-  workers: number
-  config: {
-    proxy?: string
-    headless?: boolean
-    page_timeout?: number
-    otp_timeout?: number
-    action_delay_min?: number
-    action_delay_max?: number
-    password?: string
-  }
-}
-
-// Сохранение настроек бота. Ключи config совпадают с тем, что читает
-// Python-агент (agent/runner.py и agent/browser.py): page_timeout, otp_timeout,
-// action_delay_min/max, proxy, headless, password.
-export async function updateBotSettings(
-  botId: string,
-  input: UpdateBotSettingsInput,
-): Promise<{ ok: true }> {
-  const name = input.name.trim()
-  const targetUrl = input.targetUrl.trim()
-  if (!name) throw new Error('Имя бота обязательно')
-  if (!targetUrl) throw new Error('URL деплоя обязателен')
-
-  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
-  if (!bot) throw new Error('Бот не найден')
-
-  const workers = Math.min(10, Math.max(1, Math.round(input.workers || 1)))
-
-  // Мержим поверх существующего config, чтобы не потерять поля шаблона.
-  const prev = (bot.config as Record<string, unknown>) ?? {}
-  const c = input.config
-  const nextConfig: Record<string, unknown> = { ...prev }
-
-  const setNum = (key: string, val: number | undefined) => {
-    if (typeof val === 'number' && Number.isFinite(val) && val > 0) nextConfig[key] = val
-  }
-  setNum('page_timeout', c.page_timeout)
-  setNum('otp_timeout', c.otp_timeout)
-  setNum('action_delay_min', c.action_delay_min)
-  setNum('action_delay_max', c.action_delay_max)
-
-  nextConfig.headless = Boolean(c.headless)
-
-  const proxy = (c.proxy ?? '').trim()
-  if (proxy) nextConfig.proxy = proxy
-  else delete nextConfig.proxy
-
-  const password = (c.password ?? '').trim()
-  if (password) nextConfig.password = password
-  else delete nextConfig.password
-
-  await db
-    .update(bots)
-    .set({ name, targetUrl, workers, config: nextConfig, updatedAt: new Date() })
-    .where(eq(bots.id, botId))
-
-  revalidatePath('/bots')
-  revalidatePath(`/bots/${botId}`)
-  revalidatePath('/')
-  return { ok: true }
+export interface UpdateBotSettingsInput { name: string; targetUrl: string; workers: number; config: { proxy?: string; headless?: boolean; page_timeout?: number; otp_timeout?: number; action_delay_min?: number; action_delay_max?: number; password?: string } }
+export async function updateBotSettings(botId: string, input: UpdateBotSettingsInput) {
+  const { workspace } = await requireWorkspace(); const name = input.name.trim(); const targetUrl = input.targetUrl.trim(); if (!name) throw new Error('Имя бота обязательно'); if (!targetUrl) throw new Error('URL деплоя обязателен')
+  const [bot] = await db.select().from(bots).where(scopedBot(workspace.id, botId)).limit(1); if (!bot) throw new Error('Бот не найден')
+  const config: Record<string, unknown> = { ...(bot.config as Record<string, unknown>), headless: Boolean(input.config.headless) }; const setNum = (key: string, value?: number) => { if (typeof value === 'number' && Number.isFinite(value) && value > 0) config[key] = value }
+  setNum('page_timeout', input.config.page_timeout); setNum('otp_timeout', input.config.otp_timeout); setNum('action_delay_min', input.config.action_delay_min); setNum('action_delay_max', input.config.action_delay_max)
+  for (const key of ['proxy', 'password'] as const) { const value = (input.config[key] ?? '').trim(); if (value) config[key] = value; else delete config[key] }
+  await db.update(bots).set({ name, targetUrl, workers: Math.min(10, Math.max(1, Math.round(input.workers || 1))), config, updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath('/bots'); revalidatePath(`/bots/${botId}`); revalidatePath('/'); return { ok: true as const }
 }

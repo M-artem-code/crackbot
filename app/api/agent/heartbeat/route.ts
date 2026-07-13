@@ -1,7 +1,7 @@
 import { db } from "@/lib/db"
 import { agents } from "@/lib/db/schema"
 import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 
 export const dynamic = "force-dynamic"
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   }
 
   if (os) {
-    await db.update(agents).set({ os }).where(eq(agents.id, agent.id))
+    await db.update(agents).set({ os }).where(and(eq(agents.id, agent.id), eq(agents.workspaceId, agent.workspaceId)))
   }
 
   return Response.json({ ok: true, agentId: agent.id })

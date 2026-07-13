@@ -1,7 +1,7 @@
 import { db } from "@/lib/db"
 import { botRefs, bots, runs } from "@/lib/db/schema"
 import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
-import { eq, sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 
 export const dynamic = "force-dynamic"
 
@@ -26,7 +26,7 @@ export async function POST(
   if (!agent) return unauthorized()
 
   const { id: runId } = await params
-  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1)
+  const [run] = await db.select().from(runs).where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId))).limit(1)
   if (!run) {
     return Response.json({ error: "Прогон не найден" }, { status: 404 })
   }
@@ -58,7 +58,7 @@ export async function POST(
       error: body.error ?? null,
       finishedAt: new Date(),
     })
-    .where(eq(runs.id, runId))
+    .where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId)))
 
   // Обновляем счётчики реф-ссылки и исчерпываем её при достижении лимита.
   if (body.refId != null && (successCount > 0 || failedCount > 0)) {
@@ -70,14 +70,14 @@ export async function POST(
         lastUsedAt: new Date(),
         status: sql`CASE WHEN ${botRefs.successCount} + ${successCount} >= ${botRefs.successLimit} THEN 'exhausted' ELSE ${botRefs.status} END`,
       })
-      .where(eq(botRefs.id, body.refId))
+      .where(and(eq(botRefs.id, body.refId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.botId, run.botId)))
   }
 
   // Возвращаем бота в состояние покоя.
   await db
     .update(bots)
     .set({ status: "idle", updatedAt: new Date() })
-    .where(eq(bots.id, run.botId))
+    .where(and(eq(bots.id, run.botId), eq(bots.workspaceId, agent.workspaceId)))
 
   return Response.json({ ok: true })
 }

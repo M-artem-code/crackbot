@@ -6,11 +6,13 @@ import {
   BotIcon,
   LayoutDashboardIcon,
   PlusCircleIcon,
+  LogOutIcon,
   ServerIcon,
   SparklesIcon,
   TerminalIcon,
 } from 'lucide-react'
 
+import { authClient } from '@/lib/auth-client'
 import {
   Sidebar,
   SidebarContent,
@@ -32,8 +34,13 @@ const navItems = [
   { title: 'AI-ассистент', href: '/assistant', icon: SparklesIcon },
 ]
 
-export function AppSidebar() {
+export function AppSidebar({ user, workspaceName }: { user: { name: string; email: string }; workspaceName: string }) {
   const pathname = usePathname()
+
+  async function signOut() {
+    await authClient.signOut()
+    window.location.href = '/sign-in'
+  }
 
   return (
     <Sidebar>
@@ -77,17 +84,16 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="border-t border-sidebar-border">
-        <div className="flex items-center gap-2 rounded-md bg-sidebar-accent px-3 py-2.5">
-          <span className="relative flex size-2">
-            <span className="absolute inline-flex size-full rounded-full bg-primary animate-status-pulse" />
-            <span className="relative inline-flex size-2 rounded-full bg-primary" />
-          </span>
-          <div className="flex flex-col">
-            <span className="text-xs font-medium">Локальный раннер</span>
-            <span className="font-mono text-[10px] text-muted-foreground">
-              подключен · v1.4.2
-            </span>
+        <div className="flex flex-col gap-2 rounded-md bg-sidebar-accent p-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium">{user.name}</p>
+            <p className="truncate text-[10px] text-muted-foreground">{user.email}</p>
+            <p className="truncate font-mono text-[10px] text-primary">{workspaceName}</p>
           </div>
+          <button type="button" onClick={signOut} className="flex items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-sidebar hover:text-sidebar-foreground">
+            <LogOutIcon className="size-3.5" />
+            Выйти
+          </button>
         </div>
       </SidebarFooter>
     </Sidebar>

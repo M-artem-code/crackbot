@@ -23,6 +23,7 @@ export async function GET(req: Request) {
     WHERE id = (
       SELECT id FROM runs
       WHERE status = 'queued'
+        AND workspace_id = ${agent.workspaceId}
       ORDER BY created_at ASC
       LIMIT 1
       FOR UPDATE SKIP LOCKED
@@ -39,7 +40,7 @@ export async function GET(req: Request) {
     return Response.json({ job: null })
   }
 
-  const [botRow] = await db.select().from(bots).where(eq(bots.id, row.bot_id)).limit(1)
+  const [botRow] = await db.select().from(bots).where(and(eq(bots.id, row.bot_id), eq(bots.workspaceId, agent.workspaceId))).limit(1)
   const [tplRow] = botRow
     ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1)
     : []
@@ -48,7 +49,7 @@ export async function GET(req: Request) {
   const [refRow] = await db
     .select()
     .from(botRefs)
-    .where(and(eq(botRefs.botId, row.bot_id), eq(botRefs.status, "active")))
+    .where(and(eq(botRefs.botId, row.bot_id), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.status, "active")))
     .orderBy(asc(botRefs.successCount))
     .limit(1)
 

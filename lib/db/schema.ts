@@ -1,5 +1,60 @@
 import { boolean, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core"
 
+export const user = pgTable("user", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: boolean("emailVerified").notNull().default(false),
+  image: text("image"),
+  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const session = pgTable("session", {
+  id: text("id").primaryKey(),
+  expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+  token: text("token").notNull().unique(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+  ipAddress: text("ipAddress"),
+  userAgent: text("userAgent"),
+  userId: text("userId").notNull().references(() => user.id, { onDelete: "cascade" }),
+})
+
+export const account = pgTable("account", {
+  id: text("id").primaryKey(),
+  accountId: text("accountId").notNull(),
+  providerId: text("providerId").notNull(),
+  userId: text("userId").notNull().references(() => user.id, { onDelete: "cascade" }),
+  accessToken: text("accessToken"),
+  refreshToken: text("refreshToken"),
+  idToken: text("idToken"),
+  accessTokenExpiresAt: timestamp("accessTokenExpiresAt", { withTimezone: true }),
+  refreshTokenExpiresAt: timestamp("refreshTokenExpiresAt", { withTimezone: true }),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const verification = pgTable("verification", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: timestamp("expiresAt", { withTimezone: true }).notNull(),
+  createdAt: timestamp("createdAt", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updatedAt", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const workspaces = pgTable("workspaces", {
+  id: text("id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull().unique(),
+  name: text("name").notNull(),
+  legacyClaimedAt: timestamp("legacy_claimed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const templates = pgTable("templates", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull().unique(),
@@ -20,6 +75,7 @@ export const templates = pgTable("templates", {
 
 export const bots = pgTable("bots", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id"),
   name: text("name").notNull(),
   templateId: text("template_id").notNull(),
   targetUrl: text("target_url").notNull().default(""),
@@ -36,6 +92,7 @@ export const bots = pgTable("bots", {
 
 export const scenarioVersions = pgTable("scenario_versions", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id"),
   botId: text("bot_id").notNull(),
   version: integer("version").notNull(),
   snapshot: jsonb("snapshot").notNull(),
@@ -47,6 +104,7 @@ export const scenarioVersions = pgTable("scenario_versions", {
 
 export const botRefs = pgTable("bot_refs", {
   id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id"),
   botId: text("bot_id").notNull(),
   url: text("url").notNull(),
   successLimit: integer("success_limit").notNull().default(10),
@@ -59,6 +117,7 @@ export const botRefs = pgTable("bot_refs", {
 
 export const runs = pgTable("runs", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id"),
   botId: text("bot_id").notNull(),
   status: text("status").notNull().default("queued"),
   totalWorkers: integer("total_workers").notNull().default(1),
@@ -81,6 +140,7 @@ export const runs = pgTable("runs", {
 
 export const logSteps = pgTable("log_steps", {
   id: serial("id").primaryKey(),
+  workspaceId: text("workspace_id"),
   runId: text("run_id").notNull(),
   ts: timestamp("ts", { withTimezone: true }).notNull().defaultNow(),
   worker: integer("worker").notNull().default(0),
@@ -94,6 +154,7 @@ export const logSteps = pgTable("log_steps", {
 
 export const runArtifacts = pgTable("run_artifacts", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id"),
   runId: text("run_id").notNull(),
   agentId: text("agent_id").notNull(),
   worker: integer("worker").notNull().default(0),
@@ -120,14 +181,19 @@ export const testOtpChallenges = pgTable("test_otp_challenges", {
 
 export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
+  workspaceId: text("workspace_id"),
   name: text("name").notNull(),
-  apiKey: text("api_key").notNull().unique(),
+  apiKey: text("api_key"),
+  apiKeyHash: text("api_key_hash"),
+  keyPrefix: text("key_prefix"),
   os: text("os").notNull().default(""),
   status: text("status").notNull().default("offline"),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+export type User = typeof user.$inferSelect
+export type Workspace = typeof workspaces.$inferSelect
 export type Template = typeof templates.$inferSelect
 export type Bot = typeof bots.$inferSelect
 export type BotRef = typeof botRefs.$inferSelect

@@ -17,7 +17,7 @@ export async function GET(
   const [run] = await db
     .select({ status: runs.status, cancelRequestedAt: runs.cancelRequestedAt })
     .from(runs)
-    .where(and(eq(runs.id, id), eq(runs.agentId, agent.id)))
+    .where(and(eq(runs.id, id), eq(runs.agentId, agent.id), eq(runs.workspaceId, agent.workspaceId)))
     .limit(1)
 
   if (!run) {

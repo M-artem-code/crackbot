@@ -150,7 +150,7 @@ export interface AgentInfo {
   id: string
   name: string
   os: string
-  apiKey: string
+  keyPrefix: string
   status: AgentStatus
   disabled: boolean
   activeRuns: number

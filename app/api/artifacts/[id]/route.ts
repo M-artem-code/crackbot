@@ -1,8 +1,9 @@
 import { get } from '@vercel/blob'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
 import { runArtifacts } from '@/lib/db/schema'
+import { requireWorkspace } from '@/lib/workspace'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,11 +11,12 @@ export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
+  const { workspace } = await requireWorkspace()
   const { id } = await params
   const [artifact] = await db
     .select()
     .from(runArtifacts)
-    .where(eq(runArtifacts.id, id))
+    .where(and(eq(runArtifacts.id, id), eq(runArtifacts.workspaceId, workspace.id)))
     .limit(1)
   if (!artifact) return Response.json({ error: 'Артефакт не найден' }, { status: 404 })
 

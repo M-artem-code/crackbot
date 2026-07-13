@@ -2,11 +2,6 @@
 
 import * as React from 'react'
 import {
-  CheckIcon,
-  CopyIcon,
-  DownloadIcon,
-  EyeIcon,
-  EyeOffIcon,
   MonitorIcon,
   MoreVerticalIcon,
   PlayIcon,
@@ -37,22 +32,13 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { AgentStatusBadge } from '@/components/status-badge'
 import { ApiKeyDialog } from '@/components/agents/api-key-dialog'
-import { downloadAgentConfig, maskApiKey } from '@/lib/agent-config'
 import { formatRelativeTime, type AgentInfo } from '@/lib/mock-data'
 
 export function AgentCard({ agent }: { agent: AgentInfo }) {
-  const [revealed, setRevealed] = React.useState(false)
-  const [copied, setCopied] = React.useState(false)
   const [pending, startTransition] = React.useTransition()
   const [showDelete, setShowDelete] = React.useState(false)
   const [rotatedKey, setRotatedKey] = React.useState<string | null>(null)
   const [keyDialogOpen, setKeyDialogOpen] = React.useState(false)
-
-  async function copyKey() {
-    await navigator.clipboard.writeText(agent.apiKey)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1800)
-  }
 
   function handleRotate() {
     startTransition(async () => {
@@ -93,20 +79,6 @@ export function AgentCard({ agent }: { agent: AgentInfo }) {
                   <MoreVerticalIcon />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={copyKey}>
-                    <CopyIcon />
-                    Копировать ключ
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setRevealed((v) => !v)}>
-                    {revealed ? <EyeOffIcon /> : <EyeIcon />}
-                    {revealed ? 'Скрыть ключ' : 'Показать ключ'}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => downloadAgentConfig(agent.name, agent.apiKey)}
-                  >
-                    <DownloadIcon />
-                    Скачать конфиг
-                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleRotate}>
                     <RefreshCwIcon />
                     Перевыпустить ключ
@@ -144,26 +116,11 @@ export function AgentCard({ agent }: { agent: AgentInfo }) {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-2">
-            <code className="min-w-0 flex-1 truncate font-mono text-[11px]">
-              {revealed ? agent.apiKey : maskApiKey(agent.apiKey)}
-            </code>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => setRevealed((v) => !v)}
-              aria-label={revealed ? 'Скрыть ключ' : 'Показать ключ'}
-            >
-              {revealed ? <EyeOffIcon /> : <EyeIcon />}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={copyKey}
-              aria-label="Скопировать ключ"
-            >
-              {copied ? <CheckIcon className="text-primary" /> : <CopyIcon />}
-            </Button>
+          <div className="flex flex-col gap-1 rounded-md border bg-muted/40 p-2">
+            <code className="truncate font-mono text-[11px]">{agent.keyPrefix}</code>
+            <span className="text-[10px] text-muted-foreground">
+              Полный ключ показывается только один раз при создании или перевыпуске.
+            </span>
           </div>
         </CardContent>
       </Card>

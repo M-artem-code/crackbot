@@ -1,5 +1,5 @@
 import { put } from '@vercel/blob'
-import { eq } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 
 import { authenticateAgent, unauthorized } from '@/lib/agent-auth'
 import { db } from '@/lib/db'
@@ -26,7 +26,7 @@ export async function POST(
   if (!agent) return unauthorized()
 
   const { id: runId } = await params
-  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1)
+  const [run] = await db.select().from(runs).where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId))).limit(1)
   if (!run) return Response.json({ error: 'Прогон не найден' }, { status: 404 })
   if (run.agentId !== agent.id) {
     return Response.json({ error: 'Прогон принадлежит другому агенту' }, { status: 403 })
@@ -61,6 +61,7 @@ export async function POST(
 
   await db.insert(runArtifacts).values({
     id: artifactId,
+    workspaceId: agent.workspaceId,
     runId,
     agentId: agent.id,
     worker,
