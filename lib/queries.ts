@@ -1,7 +1,7 @@
 import "server-only"
 
 import { db } from "@/lib/db"
-import { agents, botRefs, bots, logSteps, runArtifacts, runs, templates } from "@/lib/db/schema"
+import { agents, botRefs, bots, logSteps, runArtifacts, runs, scenarioVersions, templates } from "@/lib/db/schema"
 import { asc, desc, eq, inArray } from "drizzle-orm"
 import { assertScenarioDefinition, type ScenarioDefinition } from "@/lib/scenario/schema"
 import {
@@ -53,11 +53,12 @@ export async function getTemplates(): Promise<TemplateInfo[]> {
 
 // Собирает полную view-модель ботов с агрегатами по прогонам и реф-пулом.
 export async function getBots(): Promise<Bot[]> {
-  const [botRows, tplRows, refRows, runRows] = await Promise.all([
+  const [botRows, tplRows, refRows, runRows, versionRows] = await Promise.all([
     db.select().from(bots).orderBy(desc(bots.createdAt)),
     db.select().from(templates),
     db.select().from(botRefs).orderBy(asc(botRefs.id)),
     db.select().from(runs),
+    db.select().from(scenarioVersions).orderBy(desc(scenarioVersions.version)),
   ])
 
   const tplById = new Map(tplRows.map((t) => [t.id, t]))
@@ -115,6 +116,19 @@ export async function getBots(): Promise<Bot[]> {
         b.scenarioPublished ?? tpl?.scenarioDefinition,
       ) as ScenarioDefinition,
       scenarioStatus: b.scenarioStatus as "draft" | "published",
+      publishedScenarioVersionId: b.publishedScenarioVersionId,
+      scenarioVersions: versionRows
+        .filter((version) => version.botId === b.id)
+        .map((version) => ({
+          id: version.id,
+          version: version.version,
+          snapshot: assertScenarioDefinition(version.snapshot),
+          author: version.author,
+          changeSummary: version.changeSummary,
+          sourceVersionId: version.sourceVersionId,
+          createdAt: iso(version.createdAt) ?? "",
+          isCurrent: version.id === b.publishedScenarioVersionId,
+        })),
       config: (b.config as Record<string, unknown>) ?? {},
     }
   })
@@ -194,6 +208,7 @@ export async function getRunsForBot(botId: string): Promise<Run[]> {
         typeof r.scenarioSnapshot === "object" && r.scenarioSnapshot
           ? Number((r.scenarioSnapshot as Record<string, unknown>).version ?? 1)
           : 1,
+      scenarioVersionId: r.scenarioVersionId,
       artifacts: (artifactsByRun.get(r.id) ?? []).map((artifact) => ({
         id: artifact.id,
         kind: artifact.kind as "screenshot" | "dom" | "report",

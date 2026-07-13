@@ -32,6 +32,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BotSettingsForm } from '@/components/bots/bot-settings-form'
 import { ScenarioEditor } from '@/components/bots/scenario-editor'
+import { ScenarioVersionHistory } from '@/components/bots/scenario-version-history'
 import { RefPoolManager } from '@/components/bots/ref-pool-manager'
 import {
   formatDateTime,
@@ -268,6 +269,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                       <TableRow>
                         <TableHead>ID</TableHead>
                         <TableHead>Статус</TableHead>
+                        <TableHead className="hidden sm:table-cell">Версия</TableHead>
                         <TableHead className="hidden sm:table-cell">Шаги</TableHead>
                         <TableHead className="hidden sm:table-cell">Время</TableHead>
                         <TableHead className="text-right">Запущен</TableHead>
@@ -289,6 +291,9 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                           <TableCell className="font-mono text-xs">{run.id}</TableCell>
                           <TableCell>
                             <RunStatusBadge status={run.status} />
+                          </TableCell>
+                          <TableCell className="hidden font-mono text-xs sm:table-cell">
+                            {bot.scenarioVersions.find((version) => version.id === run.scenarioVersionId)?.version ? `v${bot.scenarioVersions.find((version) => version.id === run.scenarioVersionId)?.version}` : 'legacy'}
                           </TableCell>
                           <TableCell className="hidden font-mono text-xs sm:table-cell">
                             {run.stepsPassed}/{run.stepsTotal}
@@ -353,12 +358,13 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
           </TabsContent>
 
           {/* ---------------------------- Сценарий ---------------------------- */}
-          <TabsContent value="scenario">
+          <TabsContent value="scenario" className="flex flex-col gap-4">
             <ScenarioEditor
               botId={bot.id}
               initial={bot.scenarioDraft ?? bot.scenarioPublished}
               status={bot.scenarioStatus}
             />
+            <ScenarioVersionHistory botId={bot.id} versions={bot.scenarioVersions} />
           </TabsContent>
 
           {/* ----------------------------- Реф-пул ----------------------------- */}

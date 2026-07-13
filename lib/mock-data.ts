@@ -52,6 +52,7 @@ export interface Run {
   agentId?: string | null
   scenarioName?: string
   scenarioVersion?: number
+  scenarioVersionId?: string | null
   artifacts?: RunArtifact[]
 }
 
@@ -88,6 +89,17 @@ export interface TemplateInfo {
   scenarioSteps: ScenarioStep[]
 }
 
+export interface ScenarioVersionInfo {
+  id: string
+  version: number
+  snapshot: ScenarioDefinition
+  author: string
+  changeSummary: string
+  sourceVersionId: string | null
+  createdAt: string
+  isCurrent: boolean
+}
+
 export interface Bot {
   id: string
   name: string
@@ -107,6 +119,8 @@ export interface Bot {
   scenarioDraft: ScenarioDefinition | null
   scenarioPublished: ScenarioDefinition
   scenarioStatus: "draft" | "published"
+  publishedScenarioVersionId: string | null
+  scenarioVersions: ScenarioVersionInfo[]
   config: Record<string, unknown>
 }
 

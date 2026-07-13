@@ -29,6 +29,7 @@ export function ScenarioEditor({ botId, initial, status }: { botId: string; init
   const [selected, setSelected] = React.useState(0)
   const [busy, setBusy] = React.useState<'save' | 'publish' | 'test' | null>(null)
   const [feedback, setFeedback] = React.useState<string | null>(null)
+  const [changeSummary, setChangeSummary] = React.useState('')
   const validation = React.useMemo(() => validateScenarioDefinition(scenario), [scenario])
   const step = scenario.steps[selected]
 
@@ -71,7 +72,7 @@ export function ScenarioEditor({ botId, initial, status }: { botId: string; init
     setFeedback(null)
     try {
       if (kind === 'save') await saveScenarioDraft(botId, scenario)
-      if (kind === 'publish') await publishScenario(botId, scenario)
+      if (kind === 'publish') await publishScenario(botId, scenario, changeSummary)
       if (kind === 'test') await testScenarioStep(botId, scenario, selected)
       setFeedback(kind === 'save' ? 'Черновик сохранён' : kind === 'publish' ? 'Сценарий опубликован' : 'Тест поставлен в очередь')
       router.refresh()
@@ -98,6 +99,7 @@ export function ScenarioEditor({ botId, initial, status }: { botId: string; init
             <Input aria-label="Название сценария" value={scenario.name} onChange={(event) => setScenario({ ...scenario, name: event.target.value })} />
             <Button variant="outline" onClick={addStep}><PlusIcon />Добавить шаг</Button>
           </div>
+          <Input aria-label="Описание изменений" value={changeSummary} onChange={(event) => setChangeSummary(event.target.value)} placeholder="Что изменилось в этой версии (необязательно)" />
           {feedback ? <p role="status" className={cn('text-sm', validation.success ? 'text-muted-foreground' : 'text-destructive')}>{feedback}</p> : null}
           {!validation.success ? <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"><strong>{validation.errors.length} ошибок:</strong> {validation.errors.slice(0, 3).join('; ')}</div> : null}
         </CardContent>

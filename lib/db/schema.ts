@@ -29,8 +29,20 @@ export const bots = pgTable("bots", {
   scenarioDraft: jsonb("scenario_draft"),
   scenarioPublished: jsonb("scenario_published"),
   scenarioStatus: text("scenario_status").notNull().default("published"),
+  publishedScenarioVersionId: text("published_scenario_version_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const scenarioVersions = pgTable("scenario_versions", {
+  id: text("id").primaryKey(),
+  botId: text("bot_id").notNull(),
+  version: integer("version").notNull(),
+  snapshot: jsonb("snapshot").notNull(),
+  author: text("author").notNull().default("system"),
+  changeSummary: text("change_summary").notNull().default(""),
+  sourceVersionId: text("source_version_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
 export const botRefs = pgTable("bot_refs", {
@@ -55,6 +67,7 @@ export const runs = pgTable("runs", {
   durationMs: integer("duration_ms").notNull().default(0),
   error: text("error"),
   agentId: text("agent_id"),
+  scenarioVersionId: text("scenario_version_id"),
   scenarioSnapshot: jsonb("scenario_snapshot").notNull().default({
     version: 1,
     name: "Untitled scenario",
@@ -118,6 +131,7 @@ export const agents = pgTable("agents", {
 export type Template = typeof templates.$inferSelect
 export type Bot = typeof bots.$inferSelect
 export type BotRef = typeof botRefs.$inferSelect
+export type ScenarioVersion = typeof scenarioVersions.$inferSelect
 export type Run = typeof runs.$inferSelect
 export type LogStep = typeof logSteps.$inferSelect
 export type RunArtifact = typeof runArtifacts.$inferSelect

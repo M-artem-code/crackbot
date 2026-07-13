@@ -1,9 +1,9 @@
 'use server'
 
 import { db } from '@/lib/db'
-import { botRefs, bots, runs, templates } from '@/lib/db/schema'
+import { botRefs, bots, runs, scenarioVersions, templates } from '@/lib/db/schema'
 import { assertScenarioDefinition } from '@/lib/scenario/schema'
-import { eq } from 'drizzle-orm'
+import { desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 function genId(prefix: string): string {
@@ -38,16 +38,29 @@ export async function createBot(input: CreateBotInput): Promise<{ id: string }> 
     ...(input.config ?? {}),
   }
 
-  await db.insert(bots).values({
-    id: botId,
-    name,
-    templateId: input.templateId,
-    targetUrl,
-    status: 'idle',
-    workers: input.workers ?? 1,
-    config: mergedConfig,
-    scenarioPublished: assertScenarioDefinition(tpl[0].scenarioDefinition),
-    scenarioStatus: 'published',
+  const initialScenario = assertScenarioDefinition(tpl[0].scenarioDefinition)
+  const initialVersionId = genId('sv')
+  await db.transaction(async (tx) => {
+    await tx.insert(scenarioVersions).values({
+      id: initialVersionId,
+      botId,
+      version: 1,
+      snapshot: initialScenario,
+      author: 'system',
+      changeSummary: 'Начальная версия из шаблона',
+    })
+    await tx.insert(bots).values({
+      id: botId,
+      name,
+      templateId: input.templateId,
+      targetUrl,
+      status: 'idle',
+      workers: input.workers ?? 1,
+      config: mergedConfig,
+      scenarioPublished: initialScenario,
+      scenarioStatus: 'published',
+      publishedScenarioVersionId: initialVersionId,
+    })
   })
 
   const seeds = (input.seedRefs ?? [])
@@ -91,6 +104,7 @@ export async function enqueueRun(botId: string): Promise<{ runId: string }> {
     botId,
     status: 'queued',
     totalWorkers: bot.workers,
+    scenarioVersionId: bot.publishedScenarioVersionId,
     scenarioSnapshot,
   })
   await db
@@ -123,22 +137,87 @@ export async function saveScenarioDraft(
 export async function publishScenario(
   botId: string,
   value: unknown,
-): Promise<{ ok: true }> {
+  changeSummary = '',
+): Promise<{ ok: true; version: number }> {
   const scenario = assertScenarioDefinition(value)
   const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
   if (!bot) throw new Error('Бот не найден')
+  const [latest] = await db
+    .select({ version: scenarioVersions.version })
+    .from(scenarioVersions)
+    .where(eq(scenarioVersions.botId, botId))
+    .orderBy(desc(scenarioVersions.version))
+    .limit(1)
+  const version = (latest?.version ?? 0) + 1
+  const versionId = genId('sv')
 
-  await db
-    .update(bots)
-    .set({
-      scenarioPublished: scenario,
-      scenarioDraft: null,
-      scenarioStatus: 'published',
-      updatedAt: new Date(),
+  await db.transaction(async (tx) => {
+    await tx.insert(scenarioVersions).values({
+      id: versionId,
+      botId,
+      version,
+      snapshot: scenario,
+      author: 'dashboard',
+      changeSummary: changeSummary.trim() || `Опубликована версия ${version}`,
     })
-    .where(eq(bots.id, botId))
+    await tx
+      .update(bots)
+      .set({
+        scenarioPublished: scenario,
+        scenarioDraft: null,
+        scenarioStatus: 'published',
+        publishedScenarioVersionId: versionId,
+        updatedAt: new Date(),
+      })
+      .where(eq(bots.id, botId))
+  })
   revalidatePath(`/bots/${botId}`)
-  return { ok: true }
+  return { ok: true, version }
+}
+
+export async function rollbackScenario(
+  botId: string,
+  sourceVersionId: string,
+): Promise<{ ok: true; version: number }> {
+  const [source] = await db
+    .select()
+    .from(scenarioVersions)
+    .where(eq(scenarioVersions.id, sourceVersionId))
+    .limit(1)
+  if (!source || source.botId !== botId) throw new Error('Версия сценария не найдена')
+  const [latest] = await db
+    .select({ version: scenarioVersions.version })
+    .from(scenarioVersions)
+    .where(eq(scenarioVersions.botId, botId))
+    .orderBy(desc(scenarioVersions.version))
+    .limit(1)
+  const snapshot = assertScenarioDefinition(source.snapshot)
+  const version = (latest?.version ?? 0) + 1
+  const versionId = genId('sv')
+
+  await db.transaction(async (tx) => {
+    await tx.insert(scenarioVersions).values({
+      id: versionId,
+      botId,
+      version,
+      snapshot,
+      author: 'dashboard',
+      changeSummary: `Rollback к версии ${source.version}`,
+      sourceVersionId: source.id,
+    })
+    await tx
+      .update(bots)
+      .set({
+        scenarioPublished: snapshot,
+        scenarioDraft: null,
+        scenarioStatus: 'published',
+        publishedScenarioVersionId: versionId,
+        updatedAt: new Date(),
+      })
+      .where(eq(bots.id, botId))
+  })
+  revalidatePath(`/bots/${botId}`)
+  return { ok: true, version }
 }
 
 export async function testScenarioStep(
