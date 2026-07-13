@@ -9,11 +9,14 @@ import {
   PlusIcon,
 } from 'lucide-react'
 
+import { useRouter } from 'next/navigation'
+
+import { enqueueRun } from '@/app/actions/bots'
 import { PageHeader } from '@/components/page-header'
 import { RunLog } from '@/components/bots/run-log'
 import {
   BotStatusBadge,
-  DbRecordStatusBadge,
+  RefStatusBadge,
   RunStatusBadge,
 } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
@@ -41,27 +44,24 @@ import { Input } from '@/components/ui/input'
 import {
   formatDateTime,
   formatDuration,
-  getBot,
-  getRunsForBot,
-  REGISTRATION_TEMPLATE_STEPS,
+  type Bot,
   type LogStep,
   type Run,
 } from '@/lib/mock-data'
 
 const LIVE_DURATIONS = [1240, 380, 210, 460, 180, 520, 640, 2600, 940, 720, 1100]
 
-function makePendingSteps(): LogStep[] {
-  return REGISTRATION_TEMPLATE_STEPS.map((label, i) => ({
-    id: `live-${i}`,
-    label,
-    status: 'pending' as const,
-    durationMs: 0,
-  }))
-}
+export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
+  const scenario = bot.scenarioSteps
 
-export function BotDetail({ botId }: { botId: string }) {
-  const bot = getBot(botId)!
-  const botRuns = getRunsForBot(botId)
+  function makePendingSteps(): LogStep[] {
+    return scenario.map((s, i) => ({
+      id: `live-${i}`,
+      label: s.label,
+      status: 'pending' as const,
+      durationMs: 0,
+    }))
+  }
 
   const [liveSteps, setLiveSteps] = React.useState<LogStep[] | null>(null)
   const [isRunning, setIsRunning] = React.useState(false)
@@ -70,6 +70,7 @@ export function BotDetail({ botId }: { botId: string }) {
   )
   const [activeTab, setActiveTab] = React.useState('overview')
   const timeoutsRef = React.useRef<ReturnType<typeof setTimeout>[]>([])
+  const router = useRouter()
 
   React.useEffect(() => {
     return () => {
@@ -83,6 +84,11 @@ export function BotDetail({ botId }: { botId: string }) {
     setActiveTab('logs')
     const steps = makePendingSteps()
     setLiveSteps([...steps])
+
+    // Ставим реальный прогон в очередь — локальный агент подхватит его.
+    void enqueueRun(bot.id)
+      .then(() => router.refresh())
+      .catch(() => {})
 
     let elapsed = 300
     steps.forEach((_, i) => {
@@ -146,7 +152,7 @@ export function BotDetail({ botId }: { botId: string }) {
             <TabsTrigger value="overview">Обзор</TabsTrigger>
             <TabsTrigger value="runs">Прогоны</TabsTrigger>
             <TabsTrigger value="logs">Логи</TabsTrigger>
-            <TabsTrigger value="database">База данных</TabsTrigger>
+            <TabsTrigger value="database">Реф-пул</TabsTrigger>
             <TabsTrigger value="settings">Настройки</TabsTrigger>
           </TabsList>
 
@@ -183,9 +189,9 @@ export function BotDetail({ botId }: { botId: string }) {
               </Card>
               <Card>
                 <CardContent className="flex flex-col gap-1">
-                  <span className="text-xs text-muted-foreground">Расписание</span>
-                  <span className="text-sm font-medium leading-relaxed">
-                    {bot.settings.schedule}
+                  <span className="text-xs text-muted-foreground">Воркеры</span>
+                  <span className="font-mono text-2xl font-semibold">
+                    {bot.workers}
                   </span>
                 </CardContent>
               </Card>
@@ -215,10 +221,10 @@ export function BotDetail({ botId }: { botId: string }) {
                     </a>
                   </div>
                   <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2.5">
-                    <span className="text-xs text-muted-foreground">База данных</span>
+                    <span className="text-xs text-muted-foreground">Реф-пул</span>
                     <span className="flex items-center gap-1.5 font-mono text-xs">
                       <DatabaseIcon className="size-3" />
-                      {bot.database.name}
+                      {bot.refs.length} ссылок
                     </span>
                   </div>
                 </CardContent>
@@ -227,17 +233,17 @@ export function BotDetail({ botId }: { botId: string }) {
                 <CardHeader>
                   <CardTitle>Сценарий шаблона</CardTitle>
                   <CardDescription>
-                    {REGISTRATION_TEMPLATE_STEPS.length} шагов проверки регистрации
+                    {scenario.length} шагов проверки регистрации
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <ol className="flex flex-col gap-1.5 font-mono text-xs">
-                    {REGISTRATION_TEMPLATE_STEPS.map((step, i) => (
-                      <li key={step} className="flex items-center gap-2.5">
+                    {scenario.map((step, i) => (
+                      <li key={step.step} className="flex items-center gap-2.5">
                         <span className="text-muted-foreground/60">
                           {String(i + 1).padStart(2, '0')}
                         </span>
-                        <span>{step}</span>
+                        <span>{step.label}</span>
                       </li>
                     ))}
                   </ol>
@@ -256,50 +262,53 @@ export function BotDetail({ botId }: { botId: string }) {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>Статус</TableHead>
-                      <TableHead className="hidden md:table-cell">URL</TableHead>
-                      <TableHead className="hidden sm:table-cell">Шаги</TableHead>
-                      <TableHead className="hidden sm:table-cell">Время</TableHead>
-                      <TableHead className="text-right">Запущен</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {botRuns.map((run) => (
-                      <TableRow
-                        key={run.id}
-                        className="cursor-pointer"
-                        onClick={() => {
-                          setSelectedRun(run)
-                          setLiveSteps(null)
-                          setActiveTab('logs')
-                        }}
-                      >
-                        <TableCell className="font-mono text-xs">{run.id}</TableCell>
-                        <TableCell>
-                          <RunStatusBadge status={run.status} />
-                        </TableCell>
-                        <TableCell className="hidden max-w-[240px] md:table-cell">
-                          <span className="block truncate font-mono text-xs text-muted-foreground">
-                            {run.targetUrl.replace('https://', '')}
-                          </span>
-                        </TableCell>
-                        <TableCell className="hidden font-mono text-xs sm:table-cell">
-                          {run.stepsPassed}/{run.stepsTotal}
-                        </TableCell>
-                        <TableCell className="hidden font-mono text-xs sm:table-cell">
-                          {formatDuration(run.durationMs)}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground">
-                          {formatDateTime(run.startedAt)}
-                        </TableCell>
+                {botRuns.length === 0 ? (
+                  <div className="flex flex-col items-center gap-1 rounded-md border border-dashed py-10 text-center">
+                    <span className="text-sm font-medium">Прогонов ещё не было</span>
+                    <span className="text-xs text-muted-foreground">
+                      Нажмите «Запустить проверку», чтобы создать первый прогон
+                    </span>
+                  </div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ID</TableHead>
+                        <TableHead>Статус</TableHead>
+                        <TableHead className="hidden sm:table-cell">Шаги</TableHead>
+                        <TableHead className="hidden sm:table-cell">Время</TableHead>
+                        <TableHead className="text-right">Запущен</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {botRuns.map((run) => (
+                        <TableRow
+                          key={run.id}
+                          className="cursor-pointer"
+                          onClick={() => {
+                            setSelectedRun(run)
+                            setLiveSteps(null)
+                            setActiveTab('logs')
+                          }}
+                        >
+                          <TableCell className="font-mono text-xs">{run.id}</TableCell>
+                          <TableCell>
+                            <RunStatusBadge status={run.status} />
+                          </TableCell>
+                          <TableCell className="hidden font-mono text-xs sm:table-cell">
+                            {run.stepsPassed}/{run.stepsTotal}
+                          </TableCell>
+                          <TableCell className="hidden font-mono text-xs sm:table-cell">
+                            {formatDuration(run.durationMs)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                            {formatDateTime(run.startedAt)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -329,7 +338,7 @@ export function BotDetail({ botId }: { botId: string }) {
                     <RunStatusBadge status={selectedRun.status} />
                   </div>
                   <CardDescription className="font-mono text-xs">
-                    {selectedRun.targetUrl.replace('https://', '')} ·{' '}
+                    {bot.targetUrl.replace('https://', '')} ·{' '}
                     {formatDateTime(selectedRun.startedAt)} ·{' '}
                     {formatDuration(selectedRun.durationMs)}
                   </CardDescription>
@@ -338,10 +347,17 @@ export function BotDetail({ botId }: { botId: string }) {
                   <RunLog steps={selectedRun.steps} />
                 </CardContent>
               </Card>
-            ) : null}
+            ) : (
+              <div className="flex flex-col items-center gap-1 rounded-md border border-dashed py-10 text-center">
+                <span className="text-sm font-medium">Логов пока нет</span>
+                <span className="text-xs text-muted-foreground">
+                  Запустите проверку или выберите прогон во вкладке «Прогоны»
+                </span>
+              </div>
+            )}
           </TabsContent>
 
-          {/* --------------------------- База данных --------------------------- */}
+          {/* ----------------------------- Реф-пул ----------------------------- */}
           <TabsContent value="database">
             <Card>
               <CardHeader>
@@ -349,32 +365,22 @@ export function BotDetail({ botId }: { botId: string }) {
                   <div className="flex flex-col gap-1.5">
                     <CardTitle className="flex items-center gap-2">
                       <DatabaseIcon className="size-4" />
-                      <span className="font-mono">{bot.database.name}</span>
+                      <span className="font-mono">Реф-пул бота</span>
                     </CardTitle>
                     <CardDescription>
-                      Привязанная база данных бота: целевые URL и тестовые аккаунты
+                      Пул реф-ссылок для регистраций: лимиты успехов и счётчики
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge
                       variant="outline"
-                      className={
-                        bot.database.connected
-                          ? 'gap-1.5 border-primary/40 text-primary'
-                          : 'gap-1.5 border-destructive/40 text-destructive'
-                      }
+                      className="gap-1.5 border-primary/40 text-primary"
                     >
-                      <span
-                        className={`size-1.5 rounded-full ${
-                          bot.database.connected
-                            ? 'bg-primary animate-status-pulse'
-                            : 'bg-destructive'
-                        }`}
-                      />
-                      {bot.database.connected ? 'Подключена' : 'Нет связи'}
+                      <span className="size-1.5 rounded-full bg-primary animate-status-pulse" />
+                      {bot.refs.filter((r) => r.status === 'active').length} активных
                     </Badge>
                     <Badge variant="secondary" className="font-mono">
-                      {bot.database.records.length} записей
+                      {bot.refs.length} ссылок
                     </Badge>
                   </div>
                 </div>
@@ -383,50 +389,52 @@ export function BotDetail({ botId }: { botId: string }) {
                 <div className="flex items-center gap-2">
                   <Button size="sm" variant="outline">
                     <PlusIcon data-icon="inline-start" />
-                    Добавить запись
+                    Добавить ссылку
                   </Button>
                   <Button size="sm" variant="outline">
                     <DownloadIcon data-icon="inline-start" />
                     Импорт CSV
                   </Button>
                 </div>
-                {bot.database.records.length === 0 ? (
+                {bot.refs.length === 0 ? (
                   <div className="flex flex-col items-center gap-1 rounded-md border border-dashed py-10 text-center">
-                    <span className="text-sm font-medium">База пуста</span>
+                    <span className="text-sm font-medium">Пул пуст</span>
                     <span className="text-xs text-muted-foreground">
-                      Добавьте первую запись с целевым URL для проверки
+                      Добавьте первую реф-ссылку для регистраций
                     </span>
                   </div>
                 ) : (
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Целевой URL</TableHead>
-                        <TableHead className="hidden md:table-cell">
-                          Тестовый email
-                        </TableHead>
+                        <TableHead>Реф-ссылка</TableHead>
+                        <TableHead className="hidden sm:table-cell">Прогресс</TableHead>
+                        <TableHead className="hidden md:table-cell">Ошибки</TableHead>
                         <TableHead>Статус</TableHead>
                         <TableHead className="hidden sm:table-cell text-right">
-                          Добавлена
+                          Использована
                         </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {bot.database.records.map((rec) => (
-                        <TableRow key={rec.id}>
+                      {bot.refs.map((ref) => (
+                        <TableRow key={ref.id}>
                           <TableCell className="max-w-[280px]">
                             <span className="block truncate font-mono text-xs">
-                              {rec.targetUrl.replace('https://', '')}
+                              {ref.url.replace('https://', '')}
                             </span>
                           </TableCell>
+                          <TableCell className="hidden font-mono text-xs sm:table-cell">
+                            {ref.successCount}/{ref.successLimit}
+                          </TableCell>
                           <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
-                            {rec.testEmail}
+                            {ref.failedCount}
                           </TableCell>
                           <TableCell>
-                            <DbRecordStatusBadge status={rec.status} />
+                            <RefStatusBadge status={ref.status} />
                           </TableCell>
                           <TableCell className="hidden text-right font-mono text-xs text-muted-foreground sm:table-cell">
-                            {formatDateTime(rec.addedAt)}
+                            {formatDateTime(ref.lastUsedAt)}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -461,37 +469,38 @@ export function BotDetail({ botId }: { botId: string }) {
                   </Field>
                   <Field orientation="horizontal">
                     <div className="flex flex-col gap-0.5">
-                      <FieldLabel htmlFor="check-email">
-                        Проверять email-код
+                      <FieldLabel htmlFor="block-resources">
+                        Блокировать ресурсы
                       </FieldLabel>
                       <FieldDescription>
-                        Бот дождётся письма и введёт код подтверждения
-                      </FieldDescription>
-                    </div>
-                    <Switch id="check-email" defaultChecked={bot.settings.checkEmailCode} />
-                  </Field>
-                  <Field orientation="horizontal">
-                    <div className="flex flex-col gap-0.5">
-                      <FieldLabel htmlFor="screenshots">
-                        Скриншоты при ошибках
-                      </FieldLabel>
-                      <FieldDescription>
-                        Сохранять снимок страницы в момент падения шага
+                        Не грузить картинки/шрифты для ускорения прогона
                       </FieldDescription>
                     </div>
                     <Switch
-                      id="screenshots"
-                      defaultChecked={bot.settings.screenshotsOnError}
+                      id="block-resources"
+                      defaultChecked={Boolean(bot.config.blockResources)}
+                    />
+                  </Field>
+                  <Field orientation="horizontal">
+                    <div className="flex flex-col gap-0.5">
+                      <FieldLabel htmlFor="stealth">Stealth-режим</FieldLabel>
+                      <FieldDescription>
+                        Маскировка автоматизации (stealth.js, случайное окно)
+                      </FieldDescription>
+                    </div>
+                    <Switch
+                      id="stealth"
+                      defaultChecked={Boolean(bot.config.stealth)}
                     />
                   </Field>
                   <Field>
-                    <FieldLabel htmlFor="parallel">Параллельные прогоны</FieldLabel>
+                    <FieldLabel htmlFor="parallel">Воркеры (параллельные браузеры)</FieldLabel>
                     <Input
                       id="parallel"
                       type="number"
                       min={1}
-                      max={5}
-                      defaultValue={bot.settings.parallelRuns}
+                      max={10}
+                      defaultValue={bot.workers}
                       className="max-w-24 font-mono"
                     />
                     <FieldDescription>

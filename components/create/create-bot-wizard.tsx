@@ -7,9 +7,9 @@ import {
   DatabaseIcon,
   FormInputIcon,
   RocketIcon,
-  SparklesIcon,
 } from 'lucide-react'
 
+import { createBot } from '@/app/actions/bots'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -19,76 +19,51 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
 import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
-  FieldLegend,
-  FieldSet,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
-import { REGISTRATION_TEMPLATE_STEPS } from '@/lib/mock-data'
+import type { TemplateInfo } from '@/lib/mock-data'
 
-const templates = [
-  {
-    id: 'registration',
-    name: 'Проверка регистрации',
-    description:
-      'Флагманский шаблон: полный цикл от поиска формы до кода из письма',
-    badge: 'Флагман',
-    icon: FormInputIcon,
-    available: true,
-  },
-  {
-    id: 'custom',
-    name: 'Свой сценарий',
-    description: 'Соберите сценарий с нуля вместе с AI-ассистентом',
-    badge: 'Скоро',
-    icon: SparklesIcon,
-    available: false,
-  },
-]
-
-export function CreateBotWizard() {
+export function CreateBotWizard({ templates }: { templates: TemplateInfo[] }) {
   const router = useRouter()
   const [name, setName] = React.useState('')
   const [url, setUrl] = React.useState('')
-  const [template, setTemplate] = React.useState('registration')
-  const [dbName, setDbName] = React.useState('')
-  const [seedRecords, setSeedRecords] = React.useState('')
-  const [checkEmail, setCheckEmail] = React.useState(true)
-  const [screenshots, setScreenshots] = React.useState(true)
-  const [parallel, setParallel] = React.useState(false)
+  const [templateId, setTemplateId] = React.useState(templates[0]?.id ?? '')
+  const [workers, setWorkers] = React.useState('2')
+  const [seedRefs, setSeedRefs] = React.useState('')
   const [creating, setCreating] = React.useState(false)
   const [created, setCreated] = React.useState(false)
+  const [error, setError] = React.useState<string | null>(null)
 
-  const canSubmit = name.trim().length > 0 && url.trim().length > 0
+  const selected = templates.find((t) => t.id === templateId) ?? templates[0]
+  const canSubmit = name.trim().length > 0 && url.trim().length > 0 && !!selected
 
-  function handleCreate() {
-    if (!canSubmit || creating) return
+  async function handleCreate() {
+    if (!canSubmit || creating || !selected) return
     setCreating(true)
-    setTimeout(() => {
-      setCreating(false)
+    setError(null)
+    try {
+      const { id } = await createBot({
+        name,
+        targetUrl: url,
+        templateId: selected.id,
+        workers: Number(workers) || 1,
+        seedRefs: seedRefs.split('\n'),
+      })
       setCreated(true)
-      setTimeout(() => router.push('/bots'), 1400)
-    }, 1800)
+      setTimeout(() => router.push(`/bots/${id}`), 1000)
+    } catch (e) {
+      setCreating(false)
+      setError(e instanceof Error ? e.message : 'Не удалось создать бота')
+    }
   }
-
-  const previewSteps = REGISTRATION_TEMPLATE_STEPS.filter(
-    (step) =>
-      checkEmail ||
-      !(
-        step.includes('письмо') ||
-        step.includes('код') ||
-        step.includes('Код') ||
-        step.includes('почтового')
-      ),
-  )
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-5 lg:gap-6">
@@ -111,22 +86,20 @@ export function CreateBotWizard() {
                 <button
                   key={t.id}
                   type="button"
-                  disabled={!t.available}
-                  onClick={() => setTemplate(t.id)}
+                  onClick={() => setTemplateId(t.id)}
                   className={cn(
                     'flex flex-col gap-2 rounded-lg border p-4 text-left transition-colors',
-                    template === t.id && t.available
+                    templateId === t.id
                       ? 'border-primary bg-primary/5'
                       : 'hover:bg-accent',
-                    !t.available && 'cursor-not-allowed opacity-50',
                   )}
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex size-8 items-center justify-center rounded-md bg-muted">
-                      <t.icon className="size-4" />
+                      <FormInputIcon className="size-4" />
                     </div>
-                    <Badge variant={t.available ? 'default' : 'secondary'}>
-                      {t.badge}
+                    <Badge variant="secondary" className="font-mono text-[10px]">
+                      {t.flowType === 'otp' ? 'OTP-код' : 'ссылка из письма'}
                     </Badge>
                   </div>
                   <span className="text-sm font-semibold">{t.name}</span>
@@ -171,99 +144,54 @@ export function CreateBotWizard() {
                   Свежий деплой на Vercel или любой другой адрес для проверки
                 </FieldDescription>
               </Field>
-              <FieldSet>
-                <FieldLegend>Настройки сценария</FieldLegend>
-                <Field orientation="horizontal">
-                  <Checkbox
-                    id="opt-email"
-                    checked={checkEmail}
-                    onCheckedChange={(v) => setCheckEmail(v === true)}
-                  />
-                  <div className="flex flex-col gap-0.5">
-                    <FieldLabel htmlFor="opt-email">Проверять email-код</FieldLabel>
-                    <FieldDescription>
-                      Дождаться письма и ввести код подтверждения
-                    </FieldDescription>
-                  </div>
-                </Field>
-                <Field orientation="horizontal">
-                  <Checkbox
-                    id="opt-screens"
-                    checked={screenshots}
-                    onCheckedChange={(v) => setScreenshots(v === true)}
-                  />
-                  <div className="flex flex-col gap-0.5">
-                    <FieldLabel htmlFor="opt-screens">
-                      Скриншоты при ошибках
-                    </FieldLabel>
-                    <FieldDescription>
-                      Снимок страницы в момент падения шага
-                    </FieldDescription>
-                  </div>
-                </Field>
-                <Field orientation="horizontal">
-                  <Checkbox
-                    id="opt-parallel"
-                    checked={parallel}
-                    onCheckedChange={(v) => setParallel(v === true)}
-                  />
-                  <div className="flex flex-col gap-0.5">
-                    <FieldLabel htmlFor="opt-parallel">
-                      Параллельные прогоны
-                    </FieldLabel>
-                    <FieldDescription>
-                      Несколько браузеров одновременно (нагрузка на ПК выше)
-                    </FieldDescription>
-                  </div>
-                </Field>
-              </FieldSet>
+              <Field>
+                <FieldLabel htmlFor="new-workers">Воркеры</FieldLabel>
+                <Input
+                  id="new-workers"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={workers}
+                  onChange={(e) => setWorkers(e.target.value)}
+                  className="max-w-24 font-mono"
+                />
+                <FieldDescription>
+                  Сколько браузеров запускать параллельно на локальном раннере
+                </FieldDescription>
+              </Field>
             </FieldGroup>
           </CardContent>
         </Card>
 
-        {/* Шаг 3: база данных */}
+        {/* Шаг 3: реф-пул */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <span className="font-mono text-muted-foreground">03</span>
               <DatabaseIcon className="size-4" />
-              Привязка базы данных
+              Реф-пул бота
             </CardTitle>
             <CardDescription>
-              Каждому боту создаётся своя отдельная БД для целевых URL и тестовых
-              аккаунтов
+              У каждого бота свой пул реф-ссылок для регистраций
             </CardDescription>
           </CardHeader>
           <CardContent>
             <FieldGroup>
               <Field>
-                <FieldLabel htmlFor="new-db">Имя базы данных</FieldLabel>
-                <Input
-                  id="new-db"
-                  placeholder="my_bot_targets"
-                  value={dbName}
-                  onChange={(e) => setDbName(e.target.value)}
-                  className="font-mono"
-                />
-                <FieldDescription>
-                  Если оставить пустым — имя сгенерируется автоматически
-                </FieldDescription>
-              </Field>
-              <Field>
                 <FieldLabel htmlFor="new-seeds">
-                  Начальные записи (по одной на строку)
+                  Реф-ссылки (по одной на строку)
                 </FieldLabel>
                 <Textarea
                   id="new-seeds"
                   placeholder={
-                    'https://my-app-git-main.vercel.app/signup\nhttps://my-app-git-feat.vercel.app/signup'
+                    'https://my-app.vercel.app/?ref=alpha01\nhttps://my-app.vercel.app/?ref=alpha02'
                   }
-                  value={seedRecords}
-                  onChange={(e) => setSeedRecords(e.target.value)}
+                  value={seedRefs}
+                  onChange={(e) => setSeedRefs(e.target.value)}
                   className="min-h-24 font-mono text-xs"
                 />
                 <FieldDescription>
-                  URL страниц регистрации, которые бот добавит в очередь проверки
+                  Ссылки, которые бот будет использовать по очереди при регистрациях
                 </FieldDescription>
               </Field>
             </FieldGroup>
@@ -272,6 +200,9 @@ export function CreateBotWizard() {
 
         {/* Submit */}
         <div className="flex items-center justify-end gap-3">
+          {error ? (
+            <span className="text-sm text-destructive">{error}</span>
+          ) : null}
           {created ? (
             <span className="flex items-center gap-1.5 text-sm text-primary">
               <CheckIcon className="size-4" />
@@ -299,7 +230,7 @@ export function CreateBotWizard() {
           <CardHeader>
             <CardTitle>Превью сценария</CardTitle>
             <CardDescription>
-              {previewSteps.length} шагов, которые выполнит бот
+              {selected ? `${selected.scenarioSteps.length} шагов` : 'выберите шаблон'}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -312,33 +243,19 @@ export function CreateBotWizard() {
                   target: <span className="text-foreground">{url || '—'}</span>
                 </span>
                 <span>
-                  db:{' '}
-                  <span className="text-foreground">
-                    {dbName || 'auto_generated_db'}
-                  </span>
+                  template:{' '}
+                  <span className="text-foreground">{selected?.slug ?? '—'}</span>
                 </span>
               </div>
               <ol className="flex flex-col gap-1.5">
-                {previewSteps.map((step, i) => (
-                  <li key={step} className="flex items-center gap-2.5">
+                {selected?.scenarioSteps.map((step, i) => (
+                  <li key={step.step} className="flex items-center gap-2.5">
                     <span className="text-muted-foreground/60">
                       {String(i + 1).padStart(2, '0')}
                     </span>
-                    <span>{step}</span>
+                    <span>{step.label}</span>
                   </li>
                 ))}
-                {screenshots ? (
-                  <li className="flex items-center gap-2.5 text-muted-foreground">
-                    <span className="text-muted-foreground/60">--</span>
-                    <span>+ скриншот при любой ошибке</span>
-                  </li>
-                ) : null}
-                {parallel ? (
-                  <li className="flex items-center gap-2.5 text-muted-foreground">
-                    <span className="text-muted-foreground/60">--</span>
-                    <span>+ параллельный режим</span>
-                  </li>
-                ) : null}
               </ol>
             </div>
           </CardContent>
