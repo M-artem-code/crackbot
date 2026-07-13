@@ -24,11 +24,11 @@ import {
 } from '@/components/ui/input-group'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { BotStatusBadge } from '@/components/status-badge'
-import { bots, formatDateTime, type BotStatus } from '@/lib/mock-data'
+import { formatDateTime, type Bot, type BotStatus } from '@/lib/mock-data'
 
 type Filter = 'all' | BotStatus
 
-export function BotsGrid() {
+export function BotsGrid({ bots }: { bots: Bot[] }) {
   const [query, setQuery] = React.useState('')
   const [filter, setFilter] = React.useState<Filter>('all')
 
@@ -64,6 +64,7 @@ export function BotsGrid() {
           }}
         >
           <ToggleGroupItem value="all">Все</ToggleGroupItem>
+          <ToggleGroupItem value="idle">Готовы</ToggleGroupItem>
           <ToggleGroupItem value="active">Активные</ToggleGroupItem>
           <ToggleGroupItem value="paused">Пауза</ToggleGroupItem>
           <ToggleGroupItem value="error">Ошибки</ToggleGroupItem>
@@ -123,20 +124,16 @@ export function BotsGrid() {
                   </div>
                   <div className="flex flex-col items-center gap-0.5">
                     <span className="font-mono text-sm font-semibold">
-                      {bot.database.records.length}
+                      {bot.refs.length}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">записей БД</span>
+                    <span className="text-[10px] text-muted-foreground">реф-ссылок</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
                   <DatabaseIcon className="size-3" />
-                  <span className="truncate">{bot.database.name}</span>
-                  <span
-                    className={`ml-auto shrink-0 ${
-                      bot.database.connected ? 'text-primary' : 'text-destructive'
-                    }`}
-                  >
-                    {bot.database.connected ? 'подключена' : 'нет связи'}
+                  <span className="truncate">{bot.template}</span>
+                  <span className="ml-auto shrink-0 text-primary">
+                    {bot.refs.filter((r) => r.status === 'active').length} активных
                   </span>
                 </div>
               </CardContent>

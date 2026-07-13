@@ -1,24 +1,24 @@
-import Link from 'next/link'
+import Link from "next/link"
 import {
   ActivityIcon,
   AlertTriangleIcon,
   ArrowRightIcon,
   CheckCircle2Icon,
   ClockIcon,
-} from 'lucide-react'
+} from "lucide-react"
 
-import { AppShell } from '@/components/app-shell'
-import { PageHeader } from '@/components/page-header'
-import { RunsChart } from '@/components/dashboard/runs-chart'
-import { BotStatusBadge, RunStatusBadge } from '@/components/status-badge'
-import { Button } from '@/components/ui/button'
+import { AppShell } from "@/components/app-shell"
+import { PageHeader } from "@/components/page-header"
+import { RunsChart } from "@/components/dashboard/runs-chart"
+import { BotStatusBadge, RunStatusBadge } from "@/components/status-badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card'
+} from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -26,50 +26,51 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table'
-import {
-  bots,
-  formatDateTime,
-  formatDuration,
-  getBot,
-  runs,
-  totalStats,
-} from '@/lib/mock-data'
+} from "@/components/ui/table"
+import { formatDateTime, formatDuration } from "@/lib/mock-data"
+import { getBots, getDailyStats, getDashboardStats, getRecentRuns } from "@/lib/queries"
 
-const statCards = [
-  {
-    label: 'Всего прогонов',
-    value: String(totalStats.totalRuns),
-    sub: 'за 14 дней',
-    icon: ActivityIcon,
-    accent: 'text-foreground',
-  },
-  {
-    label: 'Успешных',
-    value: `${totalStats.successRate}%`,
-    sub: 'средний success rate',
-    icon: CheckCircle2Icon,
-    accent: 'text-primary',
-  },
-  {
-    label: 'Ошибок',
-    value: String(totalStats.totalErrors),
-    sub: 'требуют внимания',
-    icon: AlertTriangleIcon,
-    accent: 'text-destructive',
-  },
-  {
-    label: 'Сэкономлено',
-    value: `${totalStats.hoursSaved} ч`,
-    sub: 'ручного тестирования',
-    icon: ClockIcon,
-    accent: 'text-warning',
-  },
-]
+export default async function DashboardPage() {
+  const [bots, dailyStats, stats, recentRuns] = await Promise.all([
+    getBots(),
+    getDailyStats(),
+    getDashboardStats(),
+    getRecentRuns(6),
+  ])
 
-export default function DashboardPage() {
-  const recentRuns = runs.slice(0, 6)
-  const activeBots = bots.filter((b) => b.status === 'active')
+  const botById = new Map(bots.map((b) => [b.id, b]))
+  const activeBots = bots.filter((b) => b.status === "active" || b.status === "idle")
+
+  const statCards = [
+    {
+      label: "Всего прогонов",
+      value: String(stats.totalRuns),
+      sub: "за 14 дней",
+      icon: ActivityIcon,
+      accent: "text-foreground",
+    },
+    {
+      label: "Успешных",
+      value: `${stats.successRate}%`,
+      sub: "средний success rate",
+      icon: CheckCircle2Icon,
+      accent: "text-primary",
+    },
+    {
+      label: "Ошибок",
+      value: String(stats.totalErrors),
+      sub: "требуют внимания",
+      icon: AlertTriangleIcon,
+      accent: "text-destructive",
+    },
+    {
+      label: "Сэкономлено",
+      value: `${stats.hoursSaved} ч`,
+      sub: "ручного тестирования",
+      icon: ClockIcon,
+      accent: "text-warning",
+    },
+  ]
 
   return (
     <AppShell>
@@ -106,13 +107,13 @@ export default function DashboardPage() {
         {/* Chart + active bots */}
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:gap-6">
           <div className="lg:col-span-2">
-            <RunsChart />
+            <RunsChart data={dailyStats} />
           </div>
           <Card>
             <CardHeader>
               <CardTitle>Активные боты</CardTitle>
               <CardDescription>
-                {activeBots.length} из {bots.length} работают
+                {activeBots.length} из {bots.length} готовы к работе
               </CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -125,7 +126,7 @@ export default function DashboardPage() {
                   <div className="flex min-w-0 flex-col">
                     <span className="truncate text-sm font-medium">{bot.name}</span>
                     <span className="truncate font-mono text-[11px] text-muted-foreground">
-                      {bot.targetUrl.replace('https://', '')}
+                      {bot.targetUrl.replace("https://", "")}
                     </span>
                   </div>
                   <span className="shrink-0 font-mono text-xs text-primary">
@@ -160,14 +161,13 @@ export default function DashboardPage() {
                   <TableHead>Бот</TableHead>
                   <TableHead className="hidden md:table-cell">Целевой URL</TableHead>
                   <TableHead>Статус</TableHead>
-                  <TableHead className="hidden sm:table-cell">Шаги</TableHead>
                   <TableHead className="hidden sm:table-cell">Время</TableHead>
                   <TableHead className="text-right">Запущен</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {recentRuns.map((run) => {
-                  const bot = getBot(run.botId)
+                  const bot = botById.get(run.botId)
                   return (
                     <TableRow key={run.id}>
                       <TableCell>
@@ -175,19 +175,16 @@ export default function DashboardPage() {
                           href={`/bots/${run.botId}`}
                           className="font-medium hover:underline"
                         >
-                          {bot?.name}
+                          {run.botName}
                         </Link>
                       </TableCell>
                       <TableCell className="hidden max-w-[260px] md:table-cell">
                         <span className="block truncate font-mono text-xs text-muted-foreground">
-                          {run.targetUrl.replace('https://', '')}
+                          {(bot?.targetUrl ?? "").replace("https://", "")}
                         </span>
                       </TableCell>
                       <TableCell>
                         <RunStatusBadge status={run.status} />
-                      </TableCell>
-                      <TableCell className="hidden font-mono text-xs sm:table-cell">
-                        {run.stepsPassed}/{run.stepsTotal}
                       </TableCell>
                       <TableCell className="hidden font-mono text-xs sm:table-cell">
                         {formatDuration(run.durationMs)}
@@ -217,9 +214,7 @@ export default function DashboardPage() {
                 </p>
                 <div className="flex items-center justify-between font-mono text-xs text-muted-foreground">
                   <span>{bot.totalRuns} прогонов</span>
-                  <span
-                    className={bot.successRate >= 90 ? 'text-primary' : 'text-warning'}
-                  >
+                  <span className={bot.successRate >= 90 ? "text-primary" : "text-warning"}>
                     {bot.successRate}% успех
                   </span>
                 </div>

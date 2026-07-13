@@ -15,7 +15,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
-import { dailyStats } from '@/lib/mock-data'
+import type { DailyStat } from '@/lib/mock-data'
 
 const chartConfig = {
   success: {
@@ -28,7 +28,7 @@ const chartConfig = {
   },
 } satisfies ChartConfig
 
-export function RunsChart() {
+export function RunsChart({ data }: { data: DailyStat[] }) {
   return (
     <Card>
       <CardHeader>
@@ -39,7 +39,7 @@ export function RunsChart() {
       </CardHeader>
       <CardContent>
         <ChartContainer config={chartConfig} className="h-[260px] w-full">
-          <AreaChart data={dailyStats} margin={{ left: -20, right: 8, top: 8 }}>
+          <AreaChart data={data} margin={{ left: -20, right: 8, top: 8 }}>
             <defs>
               <linearGradient id="fillSuccess" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="var(--color-success)" stopOpacity={0.35} />

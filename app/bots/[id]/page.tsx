@@ -2,11 +2,7 @@ import { notFound } from 'next/navigation'
 
 import { AppShell } from '@/components/app-shell'
 import { BotDetail } from '@/components/bots/bot-detail'
-import { bots, getBot } from '@/lib/mock-data'
-
-export function generateStaticParams() {
-  return bots.map((bot) => ({ id: bot.id }))
-}
+import { getBot, getRunsForBot } from '@/lib/queries'
 
 export default async function BotPage({
   params,
@@ -14,12 +10,14 @@ export default async function BotPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const bot = getBot(id)
+  const bot = await getBot(id)
   if (!bot) notFound()
+
+  const runs = await getRunsForBot(id)
 
   return (
     <AppShell>
-      <BotDetail botId={bot.id} />
+      <BotDetail bot={bot} runs={runs} />
     </AppShell>
   )
 }
