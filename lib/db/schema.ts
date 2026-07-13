@@ -186,6 +186,7 @@ export const agents = pgTable("agents", {
   apiKey: text("api_key"),
   apiKeyHash: text("api_key_hash"),
   keyPrefix: text("key_prefix"),
+  keyCreatedAt: timestamp("key_created_at", { withTimezone: true }),
   os: text("os").notNull().default(""),
   status: text("status").notNull().default("offline"),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),

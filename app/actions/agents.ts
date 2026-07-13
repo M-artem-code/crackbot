@@ -20,7 +20,7 @@ export async function createAgent(input: CreateAgentInput): Promise<{ id: string
   if (!name) throw new Error('Имя агента обязательно')
   const id = `agt_${randomUUID().replaceAll('-', '')}`
   const apiKey = genApiKey()
-  await db.insert(agents).values({ id, workspaceId: workspace.id, name, apiKey: null, apiKeyHash: hashApiKey(apiKey), keyPrefix: keyPrefix(apiKey), os: input.os?.trim() ?? '', status: 'offline' })
+  await db.insert(agents).values({ id, workspaceId: workspace.id, name, apiKey: null, apiKeyHash: hashApiKey(apiKey), keyPrefix: keyPrefix(apiKey), keyCreatedAt: new Date(), os: input.os?.trim() ?? '', status: 'offline' })
   revalidatePath('/agents')
   return { id, apiKey }
 }
@@ -30,7 +30,7 @@ export async function rotateApiKey(id: string): Promise<{ apiKey: string }> {
   const [existing] = await db.select({ id: agents.id }).from(agents).where(and(eq(agents.id, id), eq(agents.workspaceId, workspace.id))).limit(1)
   if (!existing) throw new Error('Агент не найден')
   const apiKey = genApiKey()
-  await db.update(agents).set({ apiKey: null, apiKeyHash: hashApiKey(apiKey), keyPrefix: keyPrefix(apiKey) }).where(and(eq(agents.id, id), eq(agents.workspaceId, workspace.id)))
+  await db.update(agents).set({ apiKey: null, apiKeyHash: hashApiKey(apiKey), keyPrefix: keyPrefix(apiKey), keyCreatedAt: new Date() }).where(and(eq(agents.id, id), eq(agents.workspaceId, workspace.id)))
   revalidatePath('/agents')
   return { apiKey }
 }
