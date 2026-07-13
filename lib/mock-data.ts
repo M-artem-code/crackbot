@@ -7,6 +7,10 @@ export type BotStatus = "active" | "paused" | "error" | "idle"
 export type RunStatus = "success" | "failed" | "running" | "queued"
 export type StepStatus = "success" | "failed" | "running" | "pending"
 export type RefStatus = "active" | "exhausted" | "disabled"
+export type AgentStatus = "online" | "offline" | "disabled"
+
+// Агент считается онлайн, если присылал heartbeat за последние 90 секунд.
+export const AGENT_ONLINE_THRESHOLD_MS = 90_000
 
 export interface LogStep {
   id: string
@@ -102,6 +106,18 @@ export interface DashboardStats {
   hoursSaved: number
 }
 
+export interface AgentInfo {
+  id: string
+  name: string
+  os: string
+  apiKey: string
+  status: AgentStatus
+  disabled: boolean
+  activeRuns: number
+  lastSeenAt: string | null
+  createdAt: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Пул-шаги живого прогона в UI (используется в мастере и на детальной странице)
 // ---------------------------------------------------------------------------
@@ -140,6 +156,22 @@ export function formatDateTime(iso: string | null): string {
   })
 }
 
+// Относительное время «N назад» для отображения последнего heartbeat.
+export function formatRelativeTime(iso: string | null): string {
+  if (!iso) return "никогда"
+  const diff = Date.now() - new Date(iso).getTime()
+  if (diff < 0) return "только что"
+  const sec = Math.floor(diff / 1000)
+  if (sec < 10) return "только что"
+  if (sec < 60) return `${sec} с назад`
+  const min = Math.floor(sec / 60)
+  if (min < 60) return `${min} мин назад`
+  const hrs = Math.floor(min / 60)
+  if (hrs < 24) return `${hrs} ч назад`
+  const days = Math.floor(hrs / 24)
+  return `${days} дн назад`
+}
+
 // ---------------------------------------------------------------------------
 // AI-ассистент (заглушка)
 // ---------------------------------------------------------------------------
@@ -166,5 +198,5 @@ export function getAssistantReply(input: string): string {
   if (q.includes("вёрстк") || q.includes("верстк") || q.includes("селектор") || q.includes("поменял")) {
     return "Если сайт поменял вёрстку и бот перестал находить элементы:\n\n1. Откройте логи упавшего прогона — там видно, на каком шаге и какой селектор не сработал\n2. Шаблон пробует несколько стратегий поиска (по тексту, placeholder, атрибутам), поэтому мелкие изменения он переживает сам\n3. Если не помогло — обновите селектор в настройках бота\n\nОбычно починка занимает 10–15 минут."
   }
-  return "Хороший вопрос! В текущей версии я помогаю с созданием ботов, разбором логов и ошибок, привязкой реф-пулов и починкой селекторов.\n\nПопробуйте один из вариантов ниже или опишите задачу подробнее — например, какой сайт хотите проверять и что должен делать бот."
+  return "Хороший вопрос! В текущей версии я помогаю с созданием ботов, разбором логов и ошибок, привязкой реф-пулов и починкой селекторов.\n\n��опробуйте один из вариантов ниже или опишите задачу подробнее — например, какой сайт хотите проверять и что должен делать бот."
 }

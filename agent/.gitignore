@@ -1,0 +1,13 @@
+# Реальный конфиг с ключом агента — не коммитим
+agent-config.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# nodriver профили/временные данные
+.session-data/
+*.log

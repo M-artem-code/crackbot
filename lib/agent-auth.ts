@@ -11,8 +11,10 @@ export interface AuthedAgent {
 
 /**
  * Достаёт API-ключ из заголовка Authorization: Bearer <key> (или X-Api-Key),
- * проверяет его в таблице agents и обновляет heartbeat (last_seen_at + online).
- * Возвращает агента или null, если ключ невалиден.
+ * проверяет его в таблице agents и обновляет heartbeat (last_seen_at).
+ * Онлайн-статус вычисляется по last_seen_at, а колонка status хранит только
+ * признак «disabled». Отключённые агенты не аутентифицируются.
+ * Возвращает агента или null, если ключ невалиден или агент отключён.
  */
 export async function authenticateAgent(req: Request): Promise<AuthedAgent | null> {
   const header = req.headers.get("authorization") ?? ""
@@ -30,9 +32,11 @@ export async function authenticateAgent(req: Request): Promise<AuthedAgent | nul
   if (rows.length === 0) return null
 
   const agent = rows[0]
+  if (agent.status === "disabled") return null
+
   await db
     .update(agents)
-    .set({ status: "online", lastSeenAt: new Date() })
+    .set({ lastSeenAt: new Date() })
     .where(eq(agents.id, agent.id))
 
   return { id: agent.id, name: agent.name }

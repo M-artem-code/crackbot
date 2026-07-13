@@ -1,24 +1,14 @@
 'use client'
 
 import * as React from 'react'
-import {
-  DatabaseIcon,
-  DownloadIcon,
-  ExternalLinkIcon,
-  PlayIcon,
-  PlusIcon,
-} from 'lucide-react'
+import { DatabaseIcon, ExternalLinkIcon, PlayIcon } from 'lucide-react'
 
 import { useRouter } from 'next/navigation'
 
 import { enqueueRun } from '@/app/actions/bots'
 import { PageHeader } from '@/components/page-header'
 import { RunLog } from '@/components/bots/run-log'
-import {
-  BotStatusBadge,
-  RefStatusBadge,
-  RunStatusBadge,
-} from '@/components/status-badge'
+import { BotStatusBadge, RunStatusBadge } from '@/components/status-badge'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,7 +19,6 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -39,8 +28,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { BotSettingsForm } from '@/components/bots/bot-settings-form'
+import { RefPoolManager } from '@/components/bots/ref-pool-manager'
 import {
   formatDateTime,
   formatDuration,
@@ -359,161 +348,12 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
 
           {/* ----------------------------- Реф-пул ----------------------------- */}
           <TabsContent value="database">
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex flex-col gap-1.5">
-                    <CardTitle className="flex items-center gap-2">
-                      <DatabaseIcon className="size-4" />
-                      <span className="font-mono">Реф-пул бота</span>
-                    </CardTitle>
-                    <CardDescription>
-                      Пул реф-ссылок для регистраций: лимиты успехов и счётчики
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="gap-1.5 border-primary/40 text-primary"
-                    >
-                      <span className="size-1.5 rounded-full bg-primary animate-status-pulse" />
-                      {bot.refs.filter((r) => r.status === 'active').length} активных
-                    </Badge>
-                    <Badge variant="secondary" className="font-mono">
-                      {bot.refs.length} ссылок
-                    </Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline">
-                    <PlusIcon data-icon="inline-start" />
-                    Добавить ссылку
-                  </Button>
-                  <Button size="sm" variant="outline">
-                    <DownloadIcon data-icon="inline-start" />
-                    Импорт CSV
-                  </Button>
-                </div>
-                {bot.refs.length === 0 ? (
-                  <div className="flex flex-col items-center gap-1 rounded-md border border-dashed py-10 text-center">
-                    <span className="text-sm font-medium">Пул пуст</span>
-                    <span className="text-xs text-muted-foreground">
-                      Добавьте первую реф-ссылку для регистраций
-                    </span>
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Реф-ссылка</TableHead>
-                        <TableHead className="hidden sm:table-cell">Прогресс</TableHead>
-                        <TableHead className="hidden md:table-cell">Ошибки</TableHead>
-                        <TableHead>Статус</TableHead>
-                        <TableHead className="hidden sm:table-cell text-right">
-                          Использована
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {bot.refs.map((ref) => (
-                        <TableRow key={ref.id}>
-                          <TableCell className="max-w-[280px]">
-                            <span className="block truncate font-mono text-xs">
-                              {ref.url.replace('https://', '')}
-                            </span>
-                          </TableCell>
-                          <TableCell className="hidden font-mono text-xs sm:table-cell">
-                            {ref.successCount}/{ref.successLimit}
-                          </TableCell>
-                          <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
-                            {ref.failedCount}
-                          </TableCell>
-                          <TableCell>
-                            <RefStatusBadge status={ref.status} />
-                          </TableCell>
-                          <TableCell className="hidden text-right font-mono text-xs text-muted-foreground sm:table-cell">
-                            {formatDateTime(ref.lastUsedAt)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+            <RefPoolManager botId={bot.id} refs={bot.refs} />
           </TabsContent>
 
           {/* ---------------------------- Настройки ---------------------------- */}
           <TabsContent value="settings">
-            <Card className="max-w-2xl">
-              <CardHeader>
-                <CardTitle>Настройки бота</CardTitle>
-                <CardDescription>
-                  Параметры сценария и поведения при ошибках
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="bot-name">Имя бота</FieldLabel>
-                    <Input id="bot-name" defaultValue={bot.name} />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="bot-url">Целевой URL</FieldLabel>
-                    <Input id="bot-url" defaultValue={bot.targetUrl} className="font-mono" />
-                    <FieldDescription>
-                      Базовый адрес деплоя, который проверяет бот
-                    </FieldDescription>
-                  </Field>
-                  <Field orientation="horizontal">
-                    <div className="flex flex-col gap-0.5">
-                      <FieldLabel htmlFor="block-resources">
-                        Блокировать ресурсы
-                      </FieldLabel>
-                      <FieldDescription>
-                        Не грузить картинки/шрифты для ускорения прогона
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      id="block-resources"
-                      defaultChecked={Boolean(bot.config.blockResources)}
-                    />
-                  </Field>
-                  <Field orientation="horizontal">
-                    <div className="flex flex-col gap-0.5">
-                      <FieldLabel htmlFor="stealth">Stealth-режим</FieldLabel>
-                      <FieldDescription>
-                        Маскировка автоматизации (stealth.js, случайное окно)
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      id="stealth"
-                      defaultChecked={Boolean(bot.config.stealth)}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="parallel">Воркеры (параллельные браузеры)</FieldLabel>
-                    <Input
-                      id="parallel"
-                      type="number"
-                      min={1}
-                      max={10}
-                      defaultValue={bot.workers}
-                      className="max-w-24 font-mono"
-                    />
-                    <FieldDescription>
-                      Количество одновременных браузеров на локальном раннере
-                    </FieldDescription>
-                  </Field>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline">Отмена</Button>
-                    <Button>Сохранить</Button>
-                  </div>
-                </FieldGroup>
-              </CardContent>
-            </Card>
+            <BotSettingsForm bot={bot} />
           </TabsContent>
         </Tabs>
       </main>
