@@ -11,6 +11,8 @@ interface IncomingStep {
   step?: string
   message?: string
   durationMs?: number
+  attempt?: number
+  metadata?: Record<string, unknown>
 }
 
 /**
@@ -30,8 +32,11 @@ export async function POST(
   if (!run) {
     return Response.json({ error: "Прогон не найден" }, { status: 404 })
   }
-  if (run.agentId && run.agentId !== agent.id) {
+  if (run.agentId !== agent.id) {
     return Response.json({ error: "Прогон принадлежит другому агенту" }, { status: 403 })
+  }
+  if (run.status !== "running") {
+    return Response.json({ error: "Терминальный прогон нельзя изменять" }, { status: 409 })
   }
 
   const body = (await req.json().catch(() => ({}))) as {
@@ -42,15 +47,22 @@ export async function POST(
     ? body.steps
     : [body]
 
+  const allowedLevels = new Set(["info", "running", "success", "warn", "error"])
   const rows = incoming
+    .slice(0, 100)
     .filter((s) => s && (s.step || s.message))
     .map((s) => ({
       runId,
-      worker: s.worker ?? 0,
-      level: s.level ?? "info",
-      step: s.step ?? "",
-      message: s.message ?? "",
-      durationMs: s.durationMs ?? 0,
+      worker: Math.max(0, Math.min(100, Math.trunc(Number(s.worker) || 0))),
+      level: allowedLevels.has(s.level ?? "") ? s.level! : "info",
+      step: String(s.step ?? "").slice(0, 120),
+      message: String(s.message ?? "").slice(0, 2000),
+      durationMs: Math.max(0, Math.min(3_600_000, Math.trunc(Number(s.durationMs) || 0))),
+      attempt: Math.max(1, Math.min(5, Math.trunc(Number(s.attempt) || 1))),
+      metadata:
+        s.metadata && typeof s.metadata === "object" && !Array.isArray(s.metadata)
+          ? s.metadata
+          : {},
     }))
 
   if (rows.length > 0) {

@@ -2,6 +2,7 @@
 
 import { db } from '@/lib/db'
 import { botRefs, bots, runs, templates } from '@/lib/db/schema'
+import { assertScenarioDefinition } from '@/lib/scenario/schema'
 import { eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
@@ -72,12 +73,21 @@ export async function enqueueRun(botId: string): Promise<{ runId: string }> {
   const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
   if (!bot) throw new Error('Бот не найден')
 
+  const [template] = await db
+    .select()
+    .from(templates)
+    .where(eq(templates.id, bot.templateId))
+    .limit(1)
+  if (!template) throw new Error('Шаблон бота не найден')
+
+  const scenarioSnapshot = assertScenarioDefinition(template.scenarioDefinition)
   const runId = genId('run')
   await db.insert(runs).values({
     id: runId,
     botId,
     status: 'queued',
     totalWorkers: bot.workers,
+    scenarioSnapshot,
   })
   await db
     .update(bots)
@@ -88,6 +98,31 @@ export async function enqueueRun(botId: string): Promise<{ runId: string }> {
   revalidatePath('/bots')
   revalidatePath('/')
   return { runId }
+}
+
+export async function cancelRun(runId: string): Promise<{ cancelled: boolean }> {
+  const [run] = await db.select().from(runs).where(eq(runs.id, runId)).limit(1)
+  if (!run) throw new Error('Прогон не найден')
+  if (['success', 'failed', 'cancelled'].includes(run.status)) return { cancelled: false }
+
+  if (run.status === 'queued') {
+    await db
+      .update(runs)
+      .set({ status: 'cancelled', cancelRequestedAt: new Date(), finishedAt: new Date() })
+      .where(eq(runs.id, runId))
+    await db
+      .update(bots)
+      .set({ status: 'idle', updatedAt: new Date() })
+      .where(eq(bots.id, run.botId))
+  } else {
+    await db
+      .update(runs)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(runs.id, runId))
+  }
+
+  revalidatePath(`/bots/${run.botId}`)
+  return { cancelled: true }
 }
 
 export async function updateBotStatus(

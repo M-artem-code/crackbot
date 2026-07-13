@@ -10,6 +10,11 @@ export const templates = pgTable("templates", {
   fields: jsonb("fields").notNull().default([]),
   defaultConfig: jsonb("default_config").notNull().default({}),
   scenarioSteps: jsonb("scenario_steps").notNull().default([]),
+  scenarioDefinition: jsonb("scenario_definition").notNull().default({
+    version: 1,
+    name: "Untitled scenario",
+    steps: [],
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -47,6 +52,12 @@ export const runs = pgTable("runs", {
   durationMs: integer("duration_ms").notNull().default(0),
   error: text("error"),
   agentId: text("agent_id"),
+  scenarioSnapshot: jsonb("scenario_snapshot").notNull().default({
+    version: 1,
+    name: "Untitled scenario",
+    steps: [],
+  }),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -61,6 +72,19 @@ export const logSteps = pgTable("log_steps", {
   step: text("step").notNull().default(""),
   message: text("message").notNull().default(""),
   durationMs: integer("duration_ms").notNull().default(0),
+  attempt: integer("attempt").notNull().default(1),
+  metadata: jsonb("metadata").notNull().default({}),
+})
+
+export const testOtpChallenges = pgTable("test_otp_challenges", {
+  id: text("id").primaryKey(),
+  mailboxToken: text("mailbox_token").notNull().unique(),
+  email: text("email").notNull(),
+  otpHash: text("otp_hash").notNull(),
+  status: text("status").notNull().default("pending"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
 })
 
 export const agents = pgTable("agents", {
@@ -79,3 +103,4 @@ export type BotRef = typeof botRefs.$inferSelect
 export type Run = typeof runs.$inferSelect
 export type LogStep = typeof logSteps.$inferSelect
 export type Agent = typeof agents.$inferSelect
+export type TestOtpChallenge = typeof testOtpChallenges.$inferSelect

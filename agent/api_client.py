@@ -79,6 +79,10 @@ class CrackbotClient:
             # Логи не критичны — не роняем прогон из-за сетевой ошибки.
             pass
 
+    def get_run_state(self, run_id: str) -> Dict[str, Any]:
+        """Возвращает текущий статус и признак запрошенной отмены."""
+        return self._get(f"/api/agent/runs/{run_id}/state")
+
     def complete_run(
         self,
         run_id: str,
@@ -92,7 +96,7 @@ class CrackbotClient:
     ) -> Dict[str, Any]:
         """Финализирует прогон: статус, счётчики, длительность и refId."""
         payload: Dict[str, Any] = {
-            "status": "failed" if status == "failed" else "success",
+            "status": status if status in {"success", "failed", "cancelled"} else "failed",
             "successCount": max(0, int(success_count)),
             "failedCount": max(0, int(failed_count)),
             "durationMs": max(0, int(duration_ms)),
@@ -119,7 +123,17 @@ class StepBuffer:
         self._buffer: List[Dict[str, Any]] = []
         self._last_flush = time.monotonic()
 
-    def add(self, step: str, message: str = "", *, worker: int = 0, level: str = "info", duration_ms: int = 0) -> None:
+    def add(
+        self,
+        step: str,
+        message: str = "",
+        *,
+        worker: int = 0,
+        level: str = "info",
+        duration_ms: int = 0,
+        attempt: int = 1,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
         self._buffer.append(
             {
                 "worker": worker,
@@ -127,6 +141,8 @@ class StepBuffer:
                 "step": step,
                 "message": message,
                 "durationMs": max(0, int(duration_ms)),
+                "attempt": max(1, int(attempt)),
+                "metadata": metadata or {},
             }
         )
         if len(self._buffer) >= self.max_size or (time.monotonic() - self._last_flush) >= self.flush_interval:

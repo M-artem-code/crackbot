@@ -27,10 +27,14 @@ export async function GET(req: Request) {
       LIMIT 1
       FOR UPDATE SKIP LOCKED
     )
-    RETURNING id, bot_id
+    RETURNING id, bot_id, scenario_snapshot
   `)
 
-  const row = (claimed.rows?.[0] ?? null) as { id: string; bot_id: string } | null
+  const row = (claimed.rows?.[0] ?? null) as {
+    id: string
+    bot_id: string
+    scenario_snapshot: unknown
+  } | null
   if (!row) {
     return Response.json({ job: null })
   }
@@ -51,6 +55,7 @@ export async function GET(req: Request) {
   return Response.json({
     job: {
       runId: row.id,
+      scenario: row.scenario_snapshot,
       bot: botRow
         ? {
             id: botRow.id,

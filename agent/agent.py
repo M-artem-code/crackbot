@@ -55,9 +55,26 @@ async def heartbeat_loop(client: CrackbotClient, cfg: AgentConfig, stop: asyncio
 def make_logger(buffer: StepBuffer):
     """Строит log-функцию: пишет в консоль и буферизует шаг для отправки на сервер."""
 
-    def log(step: str, message: str = "", *, worker: int = 0, level: str = "info", duration_ms: int = 0) -> None:
+    def log(
+        step: str,
+        message: str = "",
+        *,
+        worker: int = 0,
+        level: str = "info",
+        duration_ms: int = 0,
+        attempt: int = 1,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
         console(step, message, worker=worker, level=level)
-        buffer.add(step, message, worker=worker, level=level, duration_ms=duration_ms)
+        buffer.add(
+            step,
+            message,
+            worker=worker,
+            level=level,
+            duration_ms=duration_ms,
+            attempt=attempt,
+            metadata=metadata,
+        )
 
     return log
 
@@ -77,11 +94,19 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
 
     try:
         runner_cfg = RunnerConfig.from_job(job, default_headless=cfg.headless, default_proxy=cfg.proxy)
-        result = await run_job(job, runner_cfg, log)
+
+        async def should_cancel() -> bool:
+            try:
+                state = await asyncio.to_thread(client.get_run_state, run_id)
+                return bool(state.get("cancelRequested")) or state.get("status") == "cancelled"
+            except Exception:  # noqa: BLE001
+                return False
+
+        result = await run_job(job, runner_cfg, log, should_cancel=should_cancel)
         buffer.flush()
 
         duration_ms = int((time.monotonic() - started) * 1000)
-        status = "success" if result.success_count > 0 else "failed"
+        status = result.status
         await asyncio.to_thread(
             client.complete_run,
             run_id,

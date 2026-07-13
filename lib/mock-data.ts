@@ -4,7 +4,7 @@
 // ---------------------------------------------------------------------------
 
 export type BotStatus = "active" | "paused" | "error" | "idle"
-export type RunStatus = "success" | "failed" | "running" | "queued"
+export type RunStatus = "success" | "failed" | "cancelled" | "running" | "queued"
 export type StepStatus = "success" | "failed" | "running" | "pending"
 export type RefStatus = "active" | "exhausted" | "disabled"
 export type AgentStatus = "online" | "offline" | "disabled"
@@ -18,6 +18,9 @@ export interface LogStep {
   detail?: string
   status: StepStatus
   durationMs: number
+  stepId?: string
+  attempt?: number
+  metadata?: Record<string, unknown>
 }
 
 export interface Run {

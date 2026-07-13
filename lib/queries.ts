@@ -142,6 +142,9 @@ export async function getRunsForBot(botId: string): Promise<Run[]> {
       detail: s.level === "error" ? s.message : undefined,
       status: stepStatusFromLevel(s.level),
       durationMs: s.durationMs,
+      stepId: s.step,
+      attempt: s.attempt,
+      metadata: (s.metadata as Record<string, unknown>) ?? {},
     })
     stepsByRun.set(s.runId, list)
   }

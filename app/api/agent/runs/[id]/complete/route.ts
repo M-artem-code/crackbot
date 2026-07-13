@@ -6,7 +6,7 @@ import { eq, sql } from "drizzle-orm"
 export const dynamic = "force-dynamic"
 
 interface CompleteBody {
-  status?: "success" | "failed"
+  status?: "success" | "failed" | "cancelled"
   successCount?: number
   failedCount?: number
   durationMs?: number
@@ -30,14 +30,23 @@ export async function POST(
   if (!run) {
     return Response.json({ error: "Прогон не найден" }, { status: 404 })
   }
-  if (run.agentId && run.agentId !== agent.id) {
+  if (run.agentId !== agent.id) {
     return Response.json({ error: "Прогон принадлежит другому агенту" }, { status: 403 })
+  }
+  if (run.status !== "running") {
+    return Response.json({ error: "Прогон уже завершён" }, { status: 409 })
   }
 
   const body = (await req.json().catch(() => ({}))) as CompleteBody
-  const status = body.status === "failed" ? "failed" : "success"
-  const successCount = Math.max(0, body.successCount ?? (status === "success" ? 1 : 0))
-  const failedCount = Math.max(0, body.failedCount ?? (status === "failed" ? 1 : 0))
+  const status = run.cancelRequestedAt
+    ? "cancelled"
+    : body.status === "success"
+      ? "success"
+      : body.status === "cancelled"
+        ? "cancelled"
+        : "failed"
+  const successCount = Math.max(0, Math.trunc(body.successCount ?? (status === "success" ? 1 : 0)))
+  const failedCount = Math.max(0, Math.trunc(body.failedCount ?? (status === "failed" ? 1 : 0)))
 
   await db
     .update(runs)
