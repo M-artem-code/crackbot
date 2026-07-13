@@ -26,6 +26,9 @@ export const bots = pgTable("bots", {
   status: text("status").notNull().default("idle"),
   workers: integer("workers").notNull().default(1),
   config: jsonb("config").notNull().default({}),
+  scenarioDraft: jsonb("scenario_draft"),
+  scenarioPublished: jsonb("scenario_published"),
+  scenarioStatus: text("scenario_status").notNull().default("published"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })

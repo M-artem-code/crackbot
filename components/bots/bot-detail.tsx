@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BotSettingsForm } from '@/components/bots/bot-settings-form'
+import { ScenarioEditor } from '@/components/bots/scenario-editor'
 import { RefPoolManager } from '@/components/bots/ref-pool-manager'
 import {
   formatDateTime,
@@ -143,6 +144,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
             <TabsTrigger value="overview">Обзор</TabsTrigger>
             <TabsTrigger value="runs">Прогоны</TabsTrigger>
             <TabsTrigger value="logs">Логи</TabsTrigger>
+            <TabsTrigger value="scenario">Сценарий</TabsTrigger>
             <TabsTrigger value="database">Реф-пул</TabsTrigger>
             <TabsTrigger value="settings">Настройки</TabsTrigger>
           </TabsList>
@@ -348,6 +350,15 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                 </span>
               </div>
             )}
+          </TabsContent>
+
+          {/* ---------------------------- Сценарий ---------------------------- */}
+          <TabsContent value="scenario">
+            <ScenarioEditor
+              botId={bot.id}
+              initial={bot.scenarioDraft ?? bot.scenarioPublished}
+              status={bot.scenarioStatus}
+            />
           </TabsContent>
 
           {/* ----------------------------- Реф-пул ----------------------------- */}

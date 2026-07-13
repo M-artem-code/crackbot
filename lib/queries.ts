@@ -3,6 +3,7 @@ import "server-only"
 import { db } from "@/lib/db"
 import { agents, botRefs, bots, logSteps, runArtifacts, runs, templates } from "@/lib/db/schema"
 import { asc, desc, eq, inArray } from "drizzle-orm"
+import { assertScenarioDefinition, type ScenarioDefinition } from "@/lib/scenario/schema"
 import {
   AGENT_ONLINE_THRESHOLD_MS,
   type AgentInfo,
@@ -107,6 +108,13 @@ export async function getBots(): Promise<Bot[]> {
       workers: b.workers,
       refs,
       scenarioSteps: (tpl?.scenarioSteps as ScenarioStep[]) ?? [],
+      scenarioDraft: b.scenarioDraft
+        ? assertScenarioDefinition(b.scenarioDraft)
+        : null,
+      scenarioPublished: assertScenarioDefinition(
+        b.scenarioPublished ?? tpl?.scenarioDefinition,
+      ) as ScenarioDefinition,
+      scenarioStatus: b.scenarioStatus as "draft" | "published",
       config: (b.config as Record<string, unknown>) ?? {},
     }
   })

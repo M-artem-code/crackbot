@@ -1,3 +1,5 @@
+import type { ScenarioDefinition } from "@/lib/scenario/schema"
+
 // ---------------------------------------------------------------------------
 // Общие типы и клиент-безопасные хелперы.
 // Реальные данные приходят из БД через lib/queries.ts (server-only).
@@ -102,6 +104,9 @@ export interface Bot {
   workers: number
   refs: BotRef[]
   scenarioSteps: ScenarioStep[]
+  scenarioDraft: ScenarioDefinition | null
+  scenarioPublished: ScenarioDefinition
+  scenarioStatus: "draft" | "published"
   config: Record<string, unknown>
 }
 

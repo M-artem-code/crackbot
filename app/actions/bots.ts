@@ -46,6 +46,8 @@ export async function createBot(input: CreateBotInput): Promise<{ id: string }> 
     status: 'idle',
     workers: input.workers ?? 1,
     config: mergedConfig,
+    scenarioPublished: assertScenarioDefinition(tpl[0].scenarioDefinition),
+    scenarioStatus: 'published',
   })
 
   const seeds = (input.seedRefs ?? [])
@@ -80,7 +82,9 @@ export async function enqueueRun(botId: string): Promise<{ runId: string }> {
     .limit(1)
   if (!template) throw new Error('Шаблон бота не найден')
 
-  const scenarioSnapshot = assertScenarioDefinition(template.scenarioDefinition)
+  const scenarioSnapshot = assertScenarioDefinition(
+    bot.scenarioPublished ?? template.scenarioDefinition,
+  )
   const runId = genId('run')
   await db.insert(runs).values({
     id: runId,
@@ -97,6 +101,72 @@ export async function enqueueRun(botId: string): Promise<{ runId: string }> {
   revalidatePath(`/bots/${botId}`)
   revalidatePath('/bots')
   revalidatePath('/')
+  return { runId }
+}
+
+export async function saveScenarioDraft(
+  botId: string,
+  value: unknown,
+): Promise<{ ok: true }> {
+  const scenario = assertScenarioDefinition(value)
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
+  if (!bot) throw new Error('Бот не найден')
+
+  await db
+    .update(bots)
+    .set({ scenarioDraft: scenario, scenarioStatus: 'draft', updatedAt: new Date() })
+    .where(eq(bots.id, botId))
+  revalidatePath(`/bots/${botId}`)
+  return { ok: true }
+}
+
+export async function publishScenario(
+  botId: string,
+  value: unknown,
+): Promise<{ ok: true }> {
+  const scenario = assertScenarioDefinition(value)
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
+  if (!bot) throw new Error('Бот не найден')
+
+  await db
+    .update(bots)
+    .set({
+      scenarioPublished: scenario,
+      scenarioDraft: null,
+      scenarioStatus: 'published',
+      updatedAt: new Date(),
+    })
+    .where(eq(bots.id, botId))
+  revalidatePath(`/bots/${botId}`)
+  return { ok: true }
+}
+
+export async function testScenarioStep(
+  botId: string,
+  value: unknown,
+  stepIndex: number,
+): Promise<{ runId: string }> {
+  const scenario = assertScenarioDefinition(value)
+  if (!Number.isInteger(stepIndex) || stepIndex < 0 || stepIndex >= scenario.steps.length) {
+    throw new Error('Шаг для теста не найден')
+  }
+  const [bot] = await db.select().from(bots).where(eq(bots.id, botId)).limit(1)
+  if (!bot) throw new Error('Бот не найден')
+
+  const scenarioSnapshot = assertScenarioDefinition({
+    ...scenario,
+    name: `${scenario.name} · test step ${stepIndex + 1}`,
+    steps: scenario.steps.slice(0, stepIndex + 1),
+  })
+  const runId = genId('run')
+  await db.insert(runs).values({
+    id: runId,
+    botId,
+    status: 'queued',
+    totalWorkers: 1,
+    scenarioSnapshot,
+  })
+  revalidatePath(`/bots/${botId}`)
   return { runId }
 }
 
