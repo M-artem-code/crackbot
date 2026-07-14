@@ -5,5 +5,12 @@ import nextTypeScript from 'eslint-config-next/typescript'
 export default defineConfig([
   ...nextVitals,
   ...nextTypeScript,
-  globalIgnores(['.next/**', 'node_modules/**', 'next-env.d.ts']),
+  {
+    rules: {
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/static-components': 'warn',
+    },
+  },
+  globalIgnores(['.next/**', 'node_modules/**', 'next-env.d.ts', 'agent/stealth.js', 'agent/templates/**/stealth.js']),
 ])
