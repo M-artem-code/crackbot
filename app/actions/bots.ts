@@ -4,7 +4,8 @@ import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 import { db } from '@/lib/db'
-import { botRefs, bots, runs, scenarioVersions, templates } from '@/lib/db/schema'
+import { botRefs, bots, pythonWorkspaces, runs, scenarioVersions, templates } from '@/lib/db/schema'
+import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateFor } from '@/lib/python-templates'
 import { assertScenarioDefinition } from '@/lib/scenario/schema'
 import { MAX_TARGET_LINKS, normalizeSuccessLimit, normalizeTargetLabel, normalizeTargetUrl } from '@/lib/target-links'
 import { requireWorkspace } from '@/lib/workspace'
@@ -37,6 +38,8 @@ export async function createBot(input: CreateBotInput) {
     await tx.insert(scenarioVersions).values({ id: versionId, workspaceId: workspace.id, botId, version: 1, snapshot: scenario, author: 'system', changeSummary: 'Начальная версия из шаблона' })
     await tx.insert(bots).values({ id: botId, workspaceId: workspace.id, name, templateId: input.templateId, targetUrl: '', status: 'idle', workers: Math.min(10, Math.max(1, Math.round(input.workers ?? 1))), config: { ...(tpl.defaultConfig as Record<string, unknown>), ...(input.config ?? {}) }, scenarioPublished: scenario, scenarioStatus: 'published', publishedScenarioVersionId: versionId })
     await tx.insert(botRefs).values(targetLinks.map((link) => ({ workspaceId: workspace.id, botId, ...link, status: 'active' as const })))
+    const pythonCode = pythonTemplateFor(tpl.slug)
+    await tx.insert(pythonWorkspaces).values({ botId, workspaceId: workspace.id, draftCode: pythonCode, draftRequirements: DEFAULT_PYTHON_REQUIREMENTS, publishedCode: pythonCode, publishedRequirements: DEFAULT_PYTHON_REQUIREMENTS, status: 'published' })
   })
   revalidatePath('/'); revalidatePath('/bots'); return { id: botId }
 }
@@ -46,7 +49,11 @@ export async function enqueueRun(botId: string) {
   const [template] = await db.select().from(templates).where(eq(templates.id, bot.templateId)).limit(1); if (!template) throw new Error('Шаблон бота не найден')
   const activeTargets = await db.select({ id: botRefs.id }).from(botRefs).where(and(eq(botRefs.botId, botId), eq(botRefs.workspaceId, workspace.id), eq(botRefs.status, 'active'))).limit(1)
   if (!activeTargets.length) throw new Error('В пуле нет активных целевых ссылок с незавершённым лимитом')
-  const runId = genId('run'); await db.insert(runs).values({ id: runId, workspaceId: workspace.id, botId, status: 'queued', totalWorkers: bot.workers, scenarioVersionId: bot.publishedScenarioVersionId, scenarioSnapshot: assertScenarioDefinition(bot.scenarioPublished ?? template.scenarioDefinition) })
+  const [pythonWorkspace] = await db.select().from(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, botId), eq(pythonWorkspaces.workspaceId, workspace.id))).limit(1)
+  const scenarioSnapshot = pythonWorkspace?.publishedVersionId
+    ? { name: 'Published Python bot', version: 1, executionMode: 'python', python: { code: pythonWorkspace.publishedCode, requirements: pythonWorkspace.publishedRequirements } }
+    : assertScenarioDefinition(bot.scenarioPublished ?? template.scenarioDefinition)
+  const runId = genId('run'); await db.insert(runs).values({ id: runId, workspaceId: workspace.id, botId, status: 'queued', totalWorkers: bot.workers, scenarioVersionId: bot.publishedScenarioVersionId, scenarioSnapshot })
   await db.update(bots).set({ status: 'active', updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath(`/bots/${botId}`); revalidatePath('/bots'); revalidatePath('/'); return { runId }
 }
 

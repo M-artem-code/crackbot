@@ -100,6 +100,26 @@ export interface ScenarioVersionInfo {
   isCurrent: boolean
 }
 
+export interface PythonVersionInfo {
+  id: string
+  version: number
+  changeSummary: string
+  createdAt: string
+  isCurrent: boolean
+}
+
+export interface PythonWorkspaceInfo {
+  draftCode: string
+  draftRequirements: string
+  publishedCode: string
+  publishedRequirements: string
+  status: 'draft' | 'published'
+  lastTestStatus: string | null
+  lastTestOutput: string
+  lastTestedAt: string | null
+  versions: PythonVersionInfo[]
+}
+
 export interface Bot {
   id: string
   name: string
@@ -121,6 +141,7 @@ export interface Bot {
   scenarioStatus: "draft" | "published"
   publishedScenarioVersionId: string | null
   scenarioVersions: ScenarioVersionInfo[]
+  pythonWorkspace: PythonWorkspaceInfo | null
   config: Record<string, unknown>
 }
 
@@ -230,7 +251,7 @@ export function getAssistantReply(input: string): string {
     return "Чтобы создать бота для проверки регистрации:\n\n1. Перейдите в раздел «Создать бота»\n2. Выберите шаблон «Проверка регистрации» — он уже умеет искать поля email/пароль, нажимать кнопки разными способами и проверять код подтверждения на почте\n3. Укажите URL вашего деплоя (например, ссылку с Vercel)\n4. Привяжите базу данных с целевыми URL и тестовыми аккаунтами\n\nШаблон сам адаптируется под структуру вашей формы. Если что-то не найдётся — я помогу подправить сценарий."
   }
   if (q.includes("упал") || q.includes("ошибк") || q.includes("почему")) {
-    return "Смотрю последний прогон… Похоже, ошибка на шаге поиска кнопки: селектор не найден. Обычно это значит, что на сайте изменилась вёрстка формы.\n\nРекомендую:\n1. Открыть логи прогона и найти шаг с ошибкой\n2. Проверить, не переименовали ли кнопку отправки\n3. Обновить селектор в настройках бота — обычно это занимает пару минут\n\nМогу предложить новый селектор на основе текущей структуры страницы."
+    return "Смотрю последний прогон… Похоже, ошибка на шаге поиска кнопки: селектор не найден. Обычно это значит, что на сайте изменилась вёрстка формы.\n\nРекомендую:\n1. Открыть логи прогона и н��йти шаг с ошибкой\n2. Проверить, не переименовали ли кнопку отправки\n3. Обновить селектор в настройках бота — обычно это занимает пару минут\n\nМогу предложить новый селектор на основе текущей структуры страницы."
   }
   if (q.includes("баз") || q.includes("бд") || q.includes("привяза") || q.includes("реф")) {
     return "У каждого бота — своя отдельная база данных (реф-пул). Она хранит:\n\n• Реф-ссылки для регистраций\n• Лимит успешных регистраций на каждую ссылку\n• Счётчики успехов/ошибок и статус ссылки\n\nКогда лимит достигнут, ссылка помечается как «исче��пана», и агент берёт следующую активную. Управлять пулом можно на вкладке «База данных» бота."

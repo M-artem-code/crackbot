@@ -279,6 +279,34 @@ export const testOtpChallenges = pgTable("test_otp_challenges", {
   verifiedAt: timestamp("verified_at", { withTimezone: true }),
 })
 
+export const pythonWorkspaces = pgTable("python_workspaces", {
+  botId: text("bot_id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  draftCode: text("draft_code").notNull().default(""),
+  draftRequirements: text("draft_requirements").notNull().default(""),
+  publishedCode: text("published_code").notNull().default(""),
+  publishedRequirements: text("published_requirements").notNull().default(""),
+  status: text("status").notNull().default("draft"),
+  publishedVersionId: text("published_version_id"),
+  lastTestStatus: text("last_test_status"),
+  lastTestOutput: text("last_test_output").notNull().default(""),
+  lastTestedAt: timestamp("last_tested_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const pythonVersions = pgTable("python_versions", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  botId: text("bot_id").notNull(),
+  version: integer("version").notNull(),
+  code: text("code").notNull(),
+  requirements: text("requirements").notNull().default(""),
+  author: text("author").notNull().default("dashboard"),
+  changeSummary: text("change_summary").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id"),
@@ -305,6 +333,8 @@ export type Run = typeof runs.$inferSelect
 export type RunAttempt = typeof runAttempts.$inferSelect
 export type LogStep = typeof logSteps.$inferSelect
 export type RunArtifact = typeof runArtifacts.$inferSelect
+export type PythonWorkspace = typeof pythonWorkspaces.$inferSelect
+export type PythonVersion = typeof pythonVersions.$inferSelect
 export type Agent = typeof agents.$inferSelect
 export type Schedule = typeof schedules.$inferSelect
 export type ScheduleFiring = typeof scheduleFirings.$inferSelect

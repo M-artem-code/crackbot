@@ -24,7 +24,8 @@ import nodriver as uc
 
 from api_client import ApiError, CrackbotClient, StepBuffer
 from config import AgentConfig, load_config
-from runner import RunnerConfig, run_job
+from python_sandbox import run_python_sandbox
+from runner import PendingArtifact, RunResult, RunnerConfig, run_job
 
 LEVEL_ICON = {"info": "·", "success": "✓", "warn": "!", "error": "✗"}
 
@@ -119,7 +120,14 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
             except Exception:  # noqa: BLE001
                 return False
 
-        result = await run_job(job, runner_cfg, log, should_cancel=should_cancel)
+        scenario = job.get("scenario") or {}
+        if scenario.get("executionMode") == "python":
+            sandbox = await run_python_sandbox(job, log)
+            result = RunResult(status=sandbox.status, success_count=sandbox.success_count, failed_count=sandbox.failed_count, errors=sandbox.errors, target_results=sandbox.target_results)
+            result.artifacts = [PendingArtifact(path=path, kind="screenshot" if path.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"} else "report", content_type="image/png" if path.suffix.lower() == ".png" else "application/octet-stream", worker=1, step_id="python-sandbox") for path in sandbox.artifact_paths]
+            log("python-output", sandbox.output or "bot.py не вывел текст", level="success" if sandbox.status == "success" else "error")
+        else:
+            result = await run_job(job, runner_cfg, log, should_cancel=should_cancel)
         buffer.flush()
 
         uploaded = 0

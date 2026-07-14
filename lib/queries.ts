@@ -1,7 +1,7 @@
 import "server-only"
 
 import { db } from "@/lib/db"
-import { agents, botRefs, bots, logSteps, runArtifacts, runs, scenarioVersions, templates } from "@/lib/db/schema"
+import { agents, botRefs, bots, logSteps, pythonVersions, pythonWorkspaces, runArtifacts, runs, scenarioVersions, templates } from "@/lib/db/schema"
 import { and, asc, desc, eq, inArray } from "drizzle-orm"
 import { assertScenarioDefinition, type ScenarioDefinition } from "@/lib/scenario/schema"
 import { requireWorkspace } from "@/lib/workspace"
@@ -38,12 +38,14 @@ export async function getTemplates(): Promise<TemplateInfo[]> {
 export async function getBots(): Promise<Bot[]> {
   const { workspace } = await requireWorkspace()
   const scope = workspace.id
-  const [botRows, tplRows, refRows, runRows, versionRows] = await Promise.all([
+  const [botRows, tplRows, refRows, runRows, versionRows, pythonRows, pythonVersionRows] = await Promise.all([
     db.select().from(bots).where(eq(bots.workspaceId, scope)).orderBy(desc(bots.createdAt)),
     db.select().from(templates),
     db.select().from(botRefs).where(eq(botRefs.workspaceId, scope)).orderBy(asc(botRefs.position), asc(botRefs.id)),
     db.select().from(runs).where(eq(runs.workspaceId, scope)),
     db.select().from(scenarioVersions).where(eq(scenarioVersions.workspaceId, scope)).orderBy(desc(scenarioVersions.version)),
+    db.select().from(pythonWorkspaces).where(eq(pythonWorkspaces.workspaceId, scope)),
+    db.select().from(pythonVersions).where(eq(pythonVersions.workspaceId, scope)).orderBy(desc(pythonVersions.version)),
   ])
   const tplById = new Map(tplRows.map((t) => [t.id, t]))
   return botRows.map((b) => {
@@ -62,6 +64,7 @@ export async function getBots(): Promise<Bot[]> {
       scenarioPublished: assertScenarioDefinition(b.scenarioPublished ?? tpl?.scenarioDefinition) as ScenarioDefinition,
       scenarioStatus: b.scenarioStatus as "draft" | "published", publishedScenarioVersionId: b.publishedScenarioVersionId,
       scenarioVersions: versionRows.filter((v) => v.botId === b.id).map((v) => ({ id: v.id, version: v.version, snapshot: assertScenarioDefinition(v.snapshot), author: v.author, changeSummary: v.changeSummary, sourceVersionId: v.sourceVersionId, createdAt: iso(v.createdAt) ?? "", isCurrent: v.id === b.publishedScenarioVersionId })),
+      pythonWorkspace: (() => { const row = pythonRows.find((item) => item.botId === b.id); return row ? { draftCode: row.draftCode, draftRequirements: row.draftRequirements, publishedCode: row.publishedCode, publishedRequirements: row.publishedRequirements, status: row.status as 'draft' | 'published', lastTestStatus: row.lastTestStatus, lastTestOutput: row.lastTestOutput, lastTestedAt: iso(row.lastTestedAt), versions: pythonVersionRows.filter((v) => v.botId === b.id).map((v) => ({ id: v.id, version: v.version, changeSummary: v.changeSummary, createdAt: iso(v.createdAt) ?? '', isCurrent: v.id === row.publishedVersionId })) } : null })(),
       config: (b.config as Record<string, unknown>) ?? {},
     }
   })

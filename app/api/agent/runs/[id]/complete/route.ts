@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 
 import { db } from "@/lib/db"
-import { botRefs, bots, notificationDeliveries, notifications, runAttempts, runs, user, workspaces } from "@/lib/db/schema"
+import { botRefs, bots, notificationDeliveries, notifications, pythonWorkspaces, runAttempts, runs, user, workspaces } from "@/lib/db/schema"
 import { isLeaseError, requireActiveLease } from "@/lib/run-leases"
 import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
 import { and, eq, sql } from "drizzle-orm"
@@ -84,6 +84,11 @@ export async function POST(
       lastUsedAt: new Date(),
       status: sql`CASE WHEN ${botRefs.successCount} + ${targetSuccess} >= ${botRefs.successLimit} THEN 'exhausted' ELSE ${botRefs.status} END`,
     }).where(and(eq(botRefs.id, targetId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.botId, run.botId)))
+  }
+
+  const snapshot = (run.scenarioSnapshot && typeof run.scenarioSnapshot === 'object' ? run.scenarioSnapshot : {}) as Record<string, unknown>
+  if (snapshot.executionMode === 'python' && snapshot.testMode === true) {
+    await db.update(pythonWorkspaces).set({ lastTestStatus: status === 'success' ? 'success' : 'failed', lastTestOutput: status === 'success' ? 'Sandbox завершил bot.py успешно. Полный stdout доступен в логах прогона.' : (body.error ?? 'Python sandbox завершился с ошибкой').slice(0, 50_000), lastTestedAt: new Date(), updatedAt: new Date() }).where(and(eq(pythonWorkspaces.botId, run.botId), eq(pythonWorkspaces.workspaceId, agent.workspaceId)))
   }
 
   // Возвращаем бота в состояние покоя.

@@ -33,6 +33,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { BotSettingsForm } from '@/components/bots/bot-settings-form'
 import { ScenarioEditor } from '@/components/bots/scenario-editor'
 import { ScenarioVersionHistory } from '@/components/bots/scenario-version-history'
+import { PythonWorkspaceEditor } from '@/components/bots/python-workspace-editor'
 import { RefPoolManager } from '@/components/bots/ref-pool-manager'
 import {
   formatDateTime,
@@ -146,6 +147,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
             <TabsTrigger value="runs">Прогоны</TabsTrigger>
             <TabsTrigger value="logs">Логи</TabsTrigger>
             <TabsTrigger value="scenario">Сценарий</TabsTrigger>
+            <TabsTrigger value="python">bot.py</TabsTrigger>
             <TabsTrigger value="database">Целевые ссылки</TabsTrigger>
             <TabsTrigger value="settings">Настройки</TabsTrigger>
           </TabsList>
@@ -353,6 +355,10 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
               status={bot.scenarioStatus}
             />
             <ScenarioVersionHistory botId={bot.id} versions={bot.scenarioVersions} />
+          </TabsContent>
+
+          <TabsContent value="python">
+            <PythonWorkspaceEditor botId={bot.id} workspace={bot.pythonWorkspace} />
           </TabsContent>
 
           {/* ----------------------------- Реф-пул ----------------------------- */}
