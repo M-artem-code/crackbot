@@ -24,6 +24,7 @@ import nodriver as uc
 
 from api_client import ApiError, CrackbotClient, StepBuffer
 from config import AgentConfig, load_config
+from privacy import sanitize_text
 from proxy_service import ProxyService, safe_proxy_label
 from python_sandbox import run_python_sandbox
 from runner import PendingArtifact, RunResult, RunnerConfig, run_job
@@ -68,10 +69,11 @@ def make_logger(buffer: StepBuffer):
         attempt: int = 1,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
-        console(step, message, worker=worker, level=level)
+        safe_message = sanitize_text(message)
+        console(step, safe_message, worker=worker, level=level)
         buffer.add(
             step,
-            message,
+            safe_message,
             worker=worker,
             level=level,
             duration_ms=duration_ms,

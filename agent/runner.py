@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 from artifacts import ArtifactCollector, PendingArtifact
 from browser import Browser
 from mail_client import TempMailWorldClient
+from privacy import safe_url, sanitize_text
 from scenario import LocatorStrategy, ScenarioDefinition, ScenarioStep, parse_scenario, redact_text, resolve_value
 from test_mail_client import TestStandMailClient
 
@@ -391,7 +392,7 @@ async def run_worker(worker_id: int, job: Dict[str, Any], cfg: RunnerConfig, sce
                 "worker": worker_id,
                 "status": "success",
                 "scenario": {"version": scenario.version, "name": scenario.name},
-                "targetUrl": target_url,
+                "targetUrl": safe_url(target_url),
             }
         )
         return collector.items
@@ -402,7 +403,7 @@ async def run_worker(worker_id: int, job: Dict[str, Any], cfg: RunnerConfig, sce
                 "worker": worker_id,
                 "status": "failed",
                 "scenario": {"version": scenario.version, "name": scenario.name},
-                "targetUrl": target_url,
+                "targetUrl": safe_url(target_url),
                 "error": ctx.safe(str(exc)),
             }
         )
@@ -433,15 +434,17 @@ async def run_job(job: Dict[str, Any], cfg: RunnerConfig, log: LogFn, should_can
         target_failed = 0
         failed_batches = 0
         target_label = str(target.get("label") or "")
-        log("target", f"Целевая ссылка {target_label or target_url}; осталось успехов={remaining}", metadata={"targetId": target_id, "targetUrl": target_url, "targetLabel": target_label})
+        safe_target_url = safe_url(target_url)
+        safe_target_label = sanitize_text(target_label) if target_label else ""
+        log("target", f"Целевая ссылка {safe_target_label or safe_target_url}; осталось успехов={remaining}", metadata={"targetId": target_id, "targetUrl": safe_target_url, "targetLabel": safe_target_label})
         while target_success < remaining and not cancelled and failed_batches < retry_budget:
             batch_size = min(cfg.workers, remaining - target_success)
             target_job = {**job, "ref": target}
             if bot_config.get("mail_provider") == "test-stand" or "/test-stand/" in target_url:
                 origin = target_url.split("/test-stand/", 1)[0].rstrip("/")
-                mail = TestStandMailClient(origin, log_func=lambda message: log("mail", message))
+                mail = TestStandMailClient(origin, log_func=lambda message: log("mail", sanitize_text(message)))
             else:
-                mail = mail_factory(log_func=lambda message: log("mail", redact_text(message, {})))
+                mail = mail_factory(log_func=lambda message: log("mail", sanitize_text(message)))
             outcomes = await asyncio.gather(
                 *(run_worker(index + 1, target_job, cfg, scenario, mail, log, cancel) for index in range(batch_size)),
                 return_exceptions=True,
@@ -465,7 +468,7 @@ async def run_job(job: Dict[str, Any], cfg: RunnerConfig, log: LogFn, should_can
             if batch_success == 0:
                 failed_batches += 1
                 level = "error" if failed_batches >= retry_budget else "warn"
-                log("target", f"Неуспешная партия {failed_batches}/{retry_budget}: {target_label or target_url}", level=level, metadata={"targetId": target_id, "targetUrl": target_url, "targetLabel": target_label})
+                log("target", f"Неуспешная партия {failed_batches}/{retry_budget}: {safe_target_label or safe_target_url}", level=level, metadata={"targetId": target_id, "targetUrl": safe_target_url, "targetLabel": safe_target_label})
             else:
                 failed_batches = 0
         result.target_results.append({"id": target_id, "successCount": target_success, "failedCount": target_failed, "completed": target_success >= remaining})
