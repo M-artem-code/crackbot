@@ -3,7 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
+  BellIcon,
   BotIcon,
+  CalendarClockIcon,
   LayoutDashboardIcon,
   PlusCircleIcon,
   LogOutIcon,
@@ -30,6 +32,8 @@ const navItems = [
   { title: 'Дашборд', href: '/', icon: LayoutDashboardIcon },
   { title: 'Мои боты', href: '/bots', icon: BotIcon },
   { title: 'Агенты', href: '/agents', icon: ServerIcon },
+  { title: 'Расписания', href: '/schedules', icon: CalendarClockIcon },
+  { title: 'Уведомления', href: '/notifications', icon: BellIcon },
   { title: 'Создать бота', href: '/create', icon: PlusCircleIcon },
   { title: 'AI-ассистент', href: '/assistant', icon: SparklesIcon },
 ]

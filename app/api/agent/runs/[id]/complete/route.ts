@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto"
+
 import { db } from "@/lib/db"
-import { botRefs, bots, runs } from "@/lib/db/schema"
+import { botRefs, bots, notificationDeliveries, notifications, runs, user, workspaces } from "@/lib/db/schema"
 import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
 import { and, eq, sql } from "drizzle-orm"
 
@@ -78,6 +80,24 @@ export async function POST(
     .update(bots)
     .set({ status: "idle", updatedAt: new Date() })
     .where(and(eq(bots.id, run.botId), eq(bots.workspaceId, agent.workspaceId)))
+
+  if (status === "failed" && run.scheduleId) {
+    const [owner] = await db
+      .select({ userId: workspaces.ownerUserId, email: user.email, botName: bots.name })
+      .from(workspaces)
+      .innerJoin(user, eq(user.id, workspaces.ownerUserId))
+      .innerJoin(bots, and(eq(bots.id, run.botId), eq(bots.workspaceId, workspaces.id)))
+      .where(eq(workspaces.id, agent.workspaceId))
+      .limit(1)
+    if (owner) {
+      const notificationId = `ntf_${randomUUID().replaceAll('-', '')}`
+      const safeError = (body.error ?? 'Прогон завершился с ошибкой').slice(0, 500)
+      await db.transaction(async (tx) => {
+        await tx.insert(notifications).values({ id: notificationId, workspaceId: agent.workspaceId, userId: owner.userId, runId, scheduleId: run.scheduleId, kind: 'scheduled_run_failed', title: `Ошибка: ${owner.botName}`, message: safeError })
+        await tx.insert(notificationDeliveries).values({ id: `ndl_${randomUUID().replaceAll('-', '')}`, workspaceId: agent.workspaceId, notificationId, recipient: owner.email })
+      })
+    }
+  }
 
   return Response.json({ ok: true })
 }

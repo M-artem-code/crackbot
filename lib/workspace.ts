@@ -5,7 +5,7 @@ import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 
 import { auth } from '@/lib/auth'
 import { db } from '@/lib/db'
-import { agents, botRefs, bots, logSteps, runArtifacts, runs, scenarioVersions, workspaces } from '@/lib/db/schema'
+import { agents, botRefs, bots, logSteps, runArtifacts, runs, workspaces } from '@/lib/db/schema'
 
 export async function getSessionUser() {
   const session = await auth.api.getSession({ headers: await headers() })
@@ -45,7 +45,6 @@ export async function ensurePersonalWorkspace(userId: string, userName?: string 
 
     if (shouldClaimLegacy) {
       await tx.update(bots).set({ workspaceId }).where(isNull(bots.workspaceId))
-      await tx.update(scenarioVersions).set({ workspaceId }).where(isNull(scenarioVersions.workspaceId))
       await tx.update(botRefs).set({ workspaceId }).where(isNull(botRefs.workspaceId))
       await tx.update(runs).set({ workspaceId }).where(isNull(runs.workspaceId))
       await tx.update(logSteps).set({ workspaceId }).where(isNull(logSteps.workspaceId))

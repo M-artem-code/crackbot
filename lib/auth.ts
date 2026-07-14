@@ -11,6 +11,7 @@ const trustedOrigins = [
   process.env.V0_RUNTIME_URL,
   projectUrl,
   deploymentUrl,
+  'https://*.vusercontent.net',
   ...(process.env.NODE_ENV === 'development'
     ? ['http://localhost:3000', 'http://127.0.0.1:3000']
     : []),

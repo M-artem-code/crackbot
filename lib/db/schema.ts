@@ -127,6 +127,7 @@ export const runs = pgTable("runs", {
   error: text("error"),
   agentId: text("agent_id"),
   scenarioVersionId: text("scenario_version_id"),
+  scheduleId: text("schedule_id"),
   scenarioSnapshot: jsonb("scenario_snapshot").notNull().default({
     version: 1,
     name: "Untitled scenario",
@@ -168,6 +169,50 @@ export const runArtifacts = pgTable("run_artifacts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+export const schedules = pgTable("schedules", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  botId: text("bot_id").notNull(),
+  kind: text("kind").notNull(),
+  intervalMinutes: integer("interval_minutes"),
+  timeOfDay: text("time_of_day"),
+  weekdays: jsonb("weekdays").notNull().default([]),
+  timezone: text("timezone").notNull().default("UTC"),
+  enabled: boolean("enabled").notNull().default(true),
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const notifications = pgTable("notifications", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  userId: text("user_id").notNull(),
+  runId: text("run_id"),
+  scheduleId: text("schedule_id"),
+  kind: text("kind").notNull(),
+  title: text("title").notNull(),
+  message: text("message").notNull(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const notificationDeliveries = pgTable("notification_deliveries", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  notificationId: text("notification_id").notNull(),
+  channel: text("channel").notNull().default("email"),
+  recipient: text("recipient").notNull(),
+  status: text("status").notNull().default("pending"),
+  providerMessageId: text("provider_message_id"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const testOtpChallenges = pgTable("test_otp_challenges", {
   id: text("id").primaryKey(),
   mailboxToken: text("mailbox_token").notNull().unique(),
@@ -203,4 +248,7 @@ export type Run = typeof runs.$inferSelect
 export type LogStep = typeof logSteps.$inferSelect
 export type RunArtifact = typeof runArtifacts.$inferSelect
 export type Agent = typeof agents.$inferSelect
+export type Schedule = typeof schedules.$inferSelect
+export type Notification = typeof notifications.$inferSelect
+export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
 export type TestOtpChallenge = typeof testOtpChallenges.$inferSelect
