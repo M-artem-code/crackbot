@@ -59,6 +59,7 @@ class RunResult:
     failed_count: int = 0
     errors: List[str] = field(default_factory=list)
     artifacts: List[PendingArtifact] = field(default_factory=list)
+    target_results: List[Dict[str, int]] = field(default_factory=list)
 
 
 @dataclass
@@ -417,30 +418,51 @@ async def run_job(job: Dict[str, Any], cfg: RunnerConfig, log: LogFn, should_can
     log("start", f"Сценарий v{scenario.version}: {scenario.name}; воркеров={cfg.workers}")
     bot = job.get("bot") or {}
     bot_config = bot.get("config") or {}
-    target_url = str((job.get("ref") or {}).get("url") or bot.get("targetUrl") or "")
-    if bot_config.get("mail_provider") == "test-stand" or "/test-stand/" in target_url:
-        origin = target_url.split("/test-stand/", 1)[0].rstrip("/")
-        mail = TestStandMailClient(origin, log_func=lambda message: log("mail", message))
-    else:
-        mail = mail_factory(log_func=lambda message: log("mail", redact_text(message, {})))
+    targets = job.get("targets") or ([job.get("ref")] if job.get("ref") else [])
+    cancelled = False
+    for target in targets:
+        if not target or await cancel():
+            cancelled = True
+            break
+        target_id = int(target.get("id"))
+        target_url = str(target.get("url") or "")
+        remaining = max(0, int(target.get("remaining") or (int(target.get("successLimit") or 0) - int(target.get("successCount") or 0))))
+        target_success = 0
+        target_failed = 0
+        log("target", f"Целевая ссылка {target_url}; осталось успехов={remaining}", metadata={"targetId": target_id, "targetUrl": target_url})
+        while target_success < remaining and not cancelled:
+            batch_size = min(cfg.workers, remaining - target_success)
+            target_job = {**job, "ref": target}
+            if bot_config.get("mail_provider") == "test-stand" or "/test-stand/" in target_url:
+                origin = target_url.split("/test-stand/", 1)[0].rstrip("/")
+                mail = TestStandMailClient(origin, log_func=lambda message: log("mail", message))
+            else:
+                mail = mail_factory(log_func=lambda message: log("mail", redact_text(message, {})))
+            outcomes = await asyncio.gather(
+                *(run_worker(index + 1, target_job, cfg, scenario, mail, log, cancel) for index in range(batch_size)),
+                return_exceptions=True,
+            )
+            batch_success = 0
+            for outcome in outcomes:
+                if isinstance(outcome, list):
+                    batch_success += 1
+                    target_success += 1
+                    result.success_count += 1
+                    result.artifacts.extend(outcome)
+                elif isinstance(outcome, RunCancelled):
+                    cancelled = True
+                    result.errors.append("Запуск отменён пользователем")
+                    result.artifacts.extend(getattr(outcome, "artifacts", []))
+                else:
+                    target_failed += 1
+                    result.failed_count += 1
+                    result.errors.append(str(outcome))
+                    result.artifacts.extend(getattr(outcome, "artifacts", []))
+            if batch_success == 0:
+                log("target", f"Ссылка пропущена после неуспешной партии: {target_url}", level="error", metadata={"targetId": target_id, "targetUrl": target_url})
+                break
+        result.target_results.append({"id": target_id, "successCount": target_success, "failedCount": target_failed})
 
-    outcomes = await asyncio.gather(
-        *(run_worker(index + 1, job, cfg, scenario, mail, log, cancel) for index in range(cfg.workers)),
-        return_exceptions=True,
-    )
-    cancelled = any(isinstance(outcome, RunCancelled) for outcome in outcomes)
-    for outcome in outcomes:
-        if isinstance(outcome, list):
-            result.success_count += 1
-            result.artifacts.extend(outcome)
-        elif isinstance(outcome, RunCancelled):
-            result.errors.append("Запуск отменён пользователем")
-            result.artifacts.extend(getattr(outcome, "artifacts", []))
-        else:
-            result.failed_count += 1
-            result.errors.append(str(outcome))
-            result.artifacts.extend(getattr(outcome, "artifacts", []))
-
-    result.status = TERMINAL_CANCELLED if cancelled else TERMINAL_SUCCESS if result.failed_count == 0 and result.success_count > 0 else TERMINAL_FAILED
+    result.status = TERMINAL_CANCELLED if cancelled else TERMINAL_SUCCESS if result.success_count > 0 and result.failed_count == 0 else TERMINAL_FAILED
     log("finish", f"Итог: {result.status}; успех={result.success_count}; ошибок={result.failed_count}", level="success" if result.status == TERMINAL_SUCCESS else "warn" if result.status == TERMINAL_CANCELLED else "error")
     return result

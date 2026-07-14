@@ -136,6 +136,7 @@ class CrackbotClient:
         duration_ms: int = 0,
         error: Optional[str] = None,
         ref_id: Optional[int] = None,
+        target_results: Optional[List[Dict[str, int]]] = None,
     ) -> Dict[str, Any]:
         """Финализирует прогон: статус, счётчики, длительность и refId."""
         payload: Dict[str, Any] = {
@@ -148,6 +149,8 @@ class CrackbotClient:
             payload["error"] = str(error)[:1000]
         if ref_id is not None:
             payload["refId"] = int(ref_id)
+        if target_results is not None:
+            payload["targetResults"] = target_results
         return self._post(f"/api/agent/runs/{run_id}/complete", payload, lease_token)
 
 

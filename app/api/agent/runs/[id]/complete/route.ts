@@ -15,6 +15,7 @@ interface CompleteBody {
   durationMs?: number
   error?: string
   refId?: number
+  targetResults?: Array<{ id: number; successCount?: number; failedCount?: number }>
 }
 
 /**
@@ -66,17 +67,21 @@ export async function POST(
 
   await db.update(runAttempts).set({ finishedAt: new Date(), outcome: status, failureKind: status === "failed" ? "business" : null, failureCode: status === "failed" ? "SCENARIO_FAILED" : null }).where(and(eq(runAttempts.runId, runId), eq(runAttempts.attempt, run.attempt), eq(runAttempts.workspaceId, agent.workspaceId)))
 
-  // Обновляем счётчики реф-ссылки и исчерпываем её при достижении лимита.
-  if (body.refId != null && (successCount > 0 || failedCount > 0)) {
-    await db
-      .update(botRefs)
-      .set({
-        successCount: sql`${botRefs.successCount} + ${successCount}`,
-        failedCount: sql`${botRefs.failedCount} + ${failedCount}`,
-        lastUsedAt: new Date(),
-        status: sql`CASE WHEN ${botRefs.successCount} + ${successCount} >= ${botRefs.successLimit} THEN 'exhausted' ELSE ${botRefs.status} END`,
-      })
-      .where(and(eq(botRefs.id, body.refId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.botId, run.botId)))
+  // Атомарно обновляем каждую ссылку snapshot-пула и не превышаем её лимит успехов.
+  const targetResults = Array.isArray(body.targetResults)
+    ? body.targetResults.slice(0, 1000)
+    : body.refId != null ? [{ id: body.refId, successCount, failedCount }] : []
+  for (const target of targetResults) {
+    const targetId = Math.trunc(Number(target.id))
+    const targetSuccess = Math.max(0, Math.trunc(Number(target.successCount) || 0))
+    const targetFailed = Math.max(0, Math.trunc(Number(target.failedCount) || 0))
+    if (!Number.isFinite(targetId) || targetId <= 0 || (targetSuccess === 0 && targetFailed === 0)) continue
+    await db.update(botRefs).set({
+      successCount: sql`LEAST(${botRefs.successLimit}, ${botRefs.successCount} + ${targetSuccess})`,
+      failedCount: sql`${botRefs.failedCount} + ${targetFailed}`,
+      lastUsedAt: new Date(),
+      status: sql`CASE WHEN ${botRefs.successCount} + ${targetSuccess} >= ${botRefs.successLimit} THEN 'exhausted' ELSE ${botRefs.status} END`,
+    }).where(and(eq(botRefs.id, targetId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.botId, run.botId)))
   }
 
   // Возвращаем бота в состояние покоя.

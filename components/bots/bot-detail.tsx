@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { DatabaseIcon, ExternalLinkIcon, PlayIcon, SquareIcon } from 'lucide-react'
+import { DatabaseIcon, PlayIcon, SquareIcon } from 'lucide-react'
 import useSWR from 'swr'
 
 import { useRouter } from 'next/navigation'
@@ -108,7 +108,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
     <>
       <PageHeader
         title={bot.name}
-        description={bot.targetUrl.replace('https://', '')}
+        description={`${bot.refs.length} целевых ссылок · ${bot.refs.reduce((sum, link) => sum + link.successCount, 0)}/${bot.refs.reduce((sum, link) => sum + link.successLimit, 0)} успешных регистраций`}
         actions={
           <>
             <BotStatusBadge status={bot.status} />
@@ -146,7 +146,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
             <TabsTrigger value="runs">Прогоны</TabsTrigger>
             <TabsTrigger value="logs">Логи</TabsTrigger>
             <TabsTrigger value="scenario">Сценарий</TabsTrigger>
-            <TabsTrigger value="database">Реф-пул</TabsTrigger>
+            <TabsTrigger value="database">Целевые ссылки</TabsTrigger>
             <TabsTrigger value="settings">Настройки</TabsTrigger>
           </TabsList>
 
@@ -203,22 +203,10 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                     <Badge variant="secondary">{bot.template}</Badge>
                   </div>
                   <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2.5">
-                    <span className="text-xs text-muted-foreground">Целевой URL</span>
-                    <a
-                      href={bot.targetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 font-mono text-xs hover:underline"
-                    >
-                      {bot.targetUrl.replace('https://', '')}
-                      <ExternalLinkIcon className="size-3" />
-                    </a>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2.5">
-                    <span className="text-xs text-muted-foreground">Реф-пул</span>
+                    <span className="text-xs text-muted-foreground">Пул целевых ссылок</span>
                     <span className="flex items-center gap-1.5 font-mono text-xs">
                       <DatabaseIcon className="size-3" />
-                      {bot.refs.length} ссылок
+                      {bot.refs.length} ссылок · {bot.refs.filter((link) => link.status === 'active').length} активных
                     </span>
                   </div>
                 </CardContent>
@@ -323,7 +311,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                     {isRunning ? 'Живой прогон' : 'Прогон завершён'}
                   </CardTitle>
                   <CardDescription className="font-mono text-xs">
-                    {bot.targetUrl.replace('https://', '')}
+                    {`${bot.refs.length} целевых ссылок в этом пуле`}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -338,7 +326,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                     <RunStatusBadge status={selectedRun.status} />
                   </div>
                   <CardDescription className="font-mono text-xs">
-                    {bot.targetUrl.replace('https://', '')} ·{' '}
+                    {`${bot.refs.length} целевых ссылок в этом пуле`} ·{' '}
                     {formatDateTime(selectedRun.startedAt)} ·{' '}
                     {formatDuration(selectedRun.durationMs)}
                   </CardDescription>

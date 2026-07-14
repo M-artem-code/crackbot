@@ -41,7 +41,6 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
   const cfg = bot.config ?? {}
 
   const [name, setName] = React.useState(bot.name)
-  const [targetUrl, setTargetUrl] = React.useState(bot.targetUrl)
   const [workers, setWorkers] = React.useState(bot.workers)
   const [proxy, setProxy] = React.useState(String(cfg.proxy ?? ''))
   const [password, setPassword] = React.useState(String(cfg.password ?? ''))
@@ -72,7 +71,6 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
       try {
         await updateBotSettings(bot.id, {
           name,
-          targetUrl,
           workers,
           config: {
             proxy,
@@ -113,19 +111,6 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
               onChange={(e) => setName(e.target.value)}
             />
           </Field>
-          <Field>
-            <FieldLabel htmlFor="bot-url">Целевой URL</FieldLabel>
-            <Input
-              id="bot-url"
-              value={targetUrl}
-              onChange={(e) => setTargetUrl(e.target.value)}
-              className="font-mono"
-            />
-            <FieldDescription>
-              Базовый адрес, который проверяет бот, если у реф-ссылки нет своего URL
-            </FieldDescription>
-          </Field>
-
           <FieldSeparator>Параллелизм</FieldSeparator>
 
           <Field>

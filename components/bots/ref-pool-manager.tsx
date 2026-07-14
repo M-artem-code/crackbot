@@ -97,10 +97,10 @@ export function RefPoolManager({
           <div className="flex flex-col gap-1.5">
             <CardTitle className="flex items-center gap-2">
               <DatabaseIcon className="size-4" />
-              <span className="font-mono">Реф-пул бота</span>
+              <span className="font-mono">Пул целевых ссылок</span>
             </CardTitle>
             <CardDescription>
-              Пул реф-ссылок для регистраций: лимиты успехов и счётчики
+              Бот проходит активные ссылки по очереди до лимита успешных регистраций
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -131,14 +131,14 @@ export function RefPoolManager({
           <div className="flex flex-col items-center gap-1 rounded-md border border-dashed py-10 text-center">
             <span className="text-sm font-medium">Пул пуст</span>
             <span className="text-xs text-muted-foreground">
-              Добавьте первую реф-ссылку для регистраций
+              Добавьте первую целевую ссылку для регистраций
             </span>
           </div>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Реф-ссылка</TableHead>
+                <TableHead>Целевая ссылка</TableHead>
                 <TableHead className="hidden sm:table-cell">Прогресс</TableHead>
                 <TableHead className="hidden md:table-cell">Ошибки</TableHead>
                 <TableHead>Статус</TableHead>
@@ -342,14 +342,14 @@ function AddRefDialog({ botId, onDone }: { botId: string; onDone: () => void }) 
       </DropdownMenuTriggerProxy>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Новая реф-ссылка</DialogTitle>
+          <DialogTitle>Новая целевую ссылка</DialogTitle>
           <DialogDescription>
-            Добавьте одну реф-ссылку и лимит успешных регистраций для неё.
+            Добавьте одну целевую ссылку и лимит успешных регистраций для неё.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
-            <FieldLabel htmlFor="new-ref-url">Реф-ссылка</FieldLabel>
+            <FieldLabel htmlFor="new-ref-url">Целевая ссылка</FieldLabel>
             <Input
               id="new-ref-url"
               placeholder="https://app.example.com/r/abc123"
@@ -417,7 +417,7 @@ function ImportRefsDialog({ botId, onDone }: { botId: string; onDone: () => void
       </DropdownMenuTriggerProxy>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Импорт реф-ссылок</DialogTitle>
+          <DialogTitle>Импорт целевую ссылок</DialogTitle>
           <DialogDescription>
             По одной ссылке в строке. Можно указать лимит через запятую: {"url,25"}
           </DialogDescription>

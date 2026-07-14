@@ -157,6 +157,7 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
             duration_ms=duration_ms,
             error="; ".join(result.errors[:3]) if result.errors else None,
             ref_id=ref_id,
+            target_results=result.target_results,
             lease_token=lease_token,
         )
         console("complete", f"run={run_id} → {status} (успех={result.success_count}, провал={result.failed_count})",
