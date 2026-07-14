@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 
 import { db } from '@/lib/db'
 import { botRefs, bots, pythonVersions, pythonWorkspaces, runs, templates } from '@/lib/db/schema'
-import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateFor } from '@/lib/python-templates'
+import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateAssetsFor, pythonTemplateFor } from '@/lib/python-templates'
 import { requireWorkspace } from '@/lib/workspace'
 
 const MAX_CODE_BYTES = 250_000
@@ -59,9 +59,11 @@ export async function testPythonDraft(botId: string, code: string, requirements:
   const { workspace } = await requireWorkspace(); const bot = await ownedBot(workspace.id, botId); validateFiles(code, requirements)
   const [target] = await db.select().from(botRefs).where(and(eq(botRefs.botId, botId), eq(botRefs.workspaceId, workspace.id), eq(botRefs.status, 'active'))).limit(1)
   if (!target) throw new Error('Для теста нужна активная целевая ссылка')
+  const [template] = await db.select().from(templates).where(eq(templates.id, bot.templateId)).limit(1)
+  if (!template) throw new Error('Шаблон бота не найден')
   await savePythonDraft(botId, code, requirements)
   const runId = id('run')
-  await db.insert(runs).values({ id: runId, workspaceId: workspace.id, botId, status: 'queued', totalWorkers: 1, scenarioSnapshot: { name: 'Python draft test', version: 1, executionMode: 'python', testMode: true, python: { code, requirements }, targetId: target.id } })
+  await db.insert(runs).values({ id: runId, workspaceId: workspace.id, botId, status: 'queued', totalWorkers: 1, scenarioSnapshot: { name: 'Python draft test', version: 1, executionMode: 'python', testMode: true, templateSlug: template.slug, python: { code, requirements, assets: pythonTemplateAssetsFor(template.slug) }, targetId: target.id } })
   await db.update(bots).set({ status: 'active', updatedAt: new Date() }).where(and(eq(bots.id, bot.id), eq(bots.workspaceId, workspace.id)))
   revalidatePath(`/bots/${botId}`); return { runId }
 }

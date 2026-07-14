@@ -30,9 +30,8 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AiScenarioStudio } from '@/components/bots/ai-scenario-studio'
 import { BotSettingsForm } from '@/components/bots/bot-settings-form'
-import { ScenarioEditor } from '@/components/bots/scenario-editor'
-import { ScenarioVersionHistory } from '@/components/bots/scenario-version-history'
 import { PythonWorkspaceEditor } from '@/components/bots/python-workspace-editor'
 import { RefPoolManager } from '@/components/bots/ref-pool-manager'
 import {
@@ -349,12 +348,11 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
 
           {/* ---------------------------- Сценарий ---------------------------- */}
           <TabsContent value="scenario" className="flex flex-col gap-4">
-            <ScenarioEditor
+            <AiScenarioStudio
               botId={bot.id}
-              initial={bot.scenarioDraft ?? bot.scenarioPublished}
-              status={bot.scenarioStatus}
+              workspace={bot.pythonWorkspace}
+              onOpenPython={() => setActiveTab('python')}
             />
-            <ScenarioVersionHistory botId={bot.id} versions={bot.scenarioVersions} />
           </TabsContent>
 
           <TabsContent value="python">

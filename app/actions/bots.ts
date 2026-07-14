@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache'
 
 import { db } from '@/lib/db'
 import { botRefs, bots, pythonVersions, pythonWorkspaces, runs, scenarioVersions, templates } from '@/lib/db/schema'
-import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateFor } from '@/lib/python-templates'
+import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateAssetsFor, pythonTemplateFor } from '@/lib/python-templates'
 import { assertScenarioDefinition } from '@/lib/scenario/schema'
 import { MAX_TARGET_LINKS, normalizeSuccessLimit, normalizeTargetLabel, normalizeTargetUrl } from '@/lib/target-links'
 import { requireWorkspace } from '@/lib/workspace'
@@ -53,7 +53,7 @@ export async function enqueueRun(botId: string) {
   if (!activeTargets.length) throw new Error('В пуле нет активных целевых ссылок с незавершённым лимитом')
   const [pythonWorkspace] = await db.select().from(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, botId), eq(pythonWorkspaces.workspaceId, workspace.id))).limit(1)
   const scenarioSnapshot = pythonWorkspace?.publishedVersionId
-    ? { name: 'Published Python bot', version: 1, executionMode: 'python', python: { code: pythonWorkspace.publishedCode, requirements: pythonWorkspace.publishedRequirements } }
+    ? { name: 'Published Python bot', version: 1, executionMode: 'python', templateSlug: template.slug, python: { code: pythonWorkspace.publishedCode, requirements: pythonWorkspace.publishedRequirements, assets: pythonTemplateAssetsFor(template.slug) } }
     : assertScenarioDefinition(bot.scenarioPublished ?? template.scenarioDefinition)
   const runId = genId('run'); await db.insert(runs).values({ id: runId, workspaceId: workspace.id, botId, status: 'queued', totalWorkers: bot.workers, scenarioVersionId: bot.publishedScenarioVersionId, scenarioSnapshot })
   await db.update(bots).set({ status: 'active', updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath(`/bots/${botId}`); revalidatePath('/bots'); revalidatePath('/'); return { runId }

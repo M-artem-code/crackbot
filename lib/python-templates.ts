@@ -1,52 +1,28 @@
-const commonHeader = `"""Crackbot user script.
-Input: CRACKBOT_INPUT points to a JSON job file.
-Output: print one JSON object with success, message and artifacts.
-This file runs inside an isolated disposable container.
-"""
-import asyncio
-import json
-import os
-from pathlib import Path
+import 'server-only'
 
-from playwright.async_api import async_playwright
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
-JOB = json.loads(Path(os.environ["CRACKBOT_INPUT"]).read_text())
-`
+const TEMPLATE_ROOT = join(process.cwd(), 'agent', 'templates')
 
-const v0Body = `
-async def main():
-    target = JOB["target"]
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
-        page = await browser.new_page()
-        await page.goto(target["url"], wait_until="domcontentloaded")
-        # Edit selectors and registration logic for your v0 deployment here.
-        title = await page.title()
-        await page.screenshot(path="/workspace/artifacts/result.png", full_page=True)
-        await browser.close()
-    print(json.dumps({"success": True, "message": f"Opened v0 page: {title}", "artifacts": ["result.png"]}))
+const requirements = [
+  'nodriver>=0.48.1,<0.49',
+  'requests>=2.32,<3',
+  'rich>=13.9,<14',
+].join('\n') + '\n'
 
-asyncio.run(main())
-`
-
-const adflexBody = `
-async def main():
-    target = JOB["target"]
-    async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=True)
-        page = await browser.new_page()
-        await page.goto(target["url"], wait_until="networkidle")
-        # Edit selectors, form fields and success conditions for AdFlex here.
-        title = await page.title()
-        await page.screenshot(path="/workspace/artifacts/result.png", full_page=True)
-        await browser.close()
-    print(json.dumps({"success": True, "message": f"Opened AdFlex page: {title}", "artifacts": ["result.png"]}))
-
-asyncio.run(main())
-`
-
-export const DEFAULT_PYTHON_REQUIREMENTS = 'playwright==1.55.0\n'
+export const DEFAULT_PYTHON_REQUIREMENTS = requirements
 
 export function pythonTemplateFor(slug: string) {
-  return commonHeader + (slug === 'adflex' ? adflexBody : v0Body)
+  const template = slug === 'adflex' ? 'adflex' : 'v0'
+  return readFileSync(join(TEMPLATE_ROOT, template, 'bot.py'), 'utf8')
+}
+
+export function pythonTemplateAssetsFor(slug: string) {
+  const assets: Record<string, string> = {
+    'mail_client.py': readFileSync(join(TEMPLATE_ROOT, 'shared', 'mail_client.py'), 'utf8'),
+    'stealth.js': readFileSync(join(TEMPLATE_ROOT, 'shared', 'stealth.js'), 'utf8'),
+  }
+  if (slug !== 'adflex') assets['ref_pool.py'] = readFileSync(join(TEMPLATE_ROOT, 'v0', 'ref_pool.py'), 'utf8')
+  return assets
 }
