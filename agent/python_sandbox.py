@@ -55,11 +55,17 @@ async def run_python_sandbox(job: Dict[str, Any], log: Callable[..., None]) -> S
         result_line = next((line for line in reversed(output.splitlines()) if line.strip().startswith("{") and line.strip().endswith("}")), "")
         parsed = json.loads(result_line) if result_line else {}
         success = process.returncode == 0 and bool(parsed.get("success"))
-        paths = [path for path in artifacts.rglob("*") if path.is_file() and path.stat().st_size <= 25 * 1024 * 1024]
+        durable_artifacts = Path(tempfile.mkdtemp(prefix="crackbot-python-artifacts-"))
+        paths = []
+        for source in artifacts.rglob("*"):
+            if source.is_file() and source.stat().st_size <= 25 * 1024 * 1024:
+                destination = durable_artifacts / source.relative_to(artifacts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                paths.append(destination)
         return SandboxResult(status="success" if success else "failed", success_count=1 if success else 0, failed_count=0 if success else 1, errors=[] if success else [str(parsed.get("message") or f"bot.py завершился с кодом {process.returncode}")], output=output, artifact_paths=paths, target_results=[{"id": int(target["id"]), "successCount": 1 if success else 0, "failedCount": 0 if success else 1}])
     except asyncio.TimeoutError:
         process.kill(); await process.wait()
         return SandboxResult(status="failed", failed_count=1, errors=["Python sandbox превысил лимит 15 минут"], output="Timeout")
     finally:
-        # Artifact files are copied by the caller before this directory can be removed.
-        pass
+        shutil.rmtree(root, ignore_errors=True)

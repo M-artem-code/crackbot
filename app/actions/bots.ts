@@ -4,7 +4,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 import { db } from '@/lib/db'
-import { botRefs, bots, pythonWorkspaces, runs, scenarioVersions, templates } from '@/lib/db/schema'
+import { botRefs, bots, pythonVersions, pythonWorkspaces, runs, scenarioVersions, templates } from '@/lib/db/schema'
 import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateFor } from '@/lib/python-templates'
 import { assertScenarioDefinition } from '@/lib/scenario/schema'
 import { MAX_TARGET_LINKS, normalizeSuccessLimit, normalizeTargetLabel, normalizeTargetUrl } from '@/lib/target-links'
@@ -39,7 +39,9 @@ export async function createBot(input: CreateBotInput) {
     await tx.insert(bots).values({ id: botId, workspaceId: workspace.id, name, templateId: input.templateId, targetUrl: '', status: 'idle', workers: Math.min(10, Math.max(1, Math.round(input.workers ?? 1))), config: { ...(tpl.defaultConfig as Record<string, unknown>), ...(input.config ?? {}) }, scenarioPublished: scenario, scenarioStatus: 'published', publishedScenarioVersionId: versionId })
     await tx.insert(botRefs).values(targetLinks.map((link) => ({ workspaceId: workspace.id, botId, ...link, status: 'active' as const })))
     const pythonCode = pythonTemplateFor(tpl.slug)
-    await tx.insert(pythonWorkspaces).values({ botId, workspaceId: workspace.id, draftCode: pythonCode, draftRequirements: DEFAULT_PYTHON_REQUIREMENTS, publishedCode: pythonCode, publishedRequirements: DEFAULT_PYTHON_REQUIREMENTS, status: 'published' })
+    const pythonVersionId = genId('pyv')
+    await tx.insert(pythonVersions).values({ id: pythonVersionId, workspaceId: workspace.id, botId, version: 1, code: pythonCode, requirements: DEFAULT_PYTHON_REQUIREMENTS, author: 'system', changeSummary: 'Начальная версия из шаблона' })
+    await tx.insert(pythonWorkspaces).values({ botId, workspaceId: workspace.id, draftCode: pythonCode, draftRequirements: DEFAULT_PYTHON_REQUIREMENTS, publishedCode: pythonCode, publishedRequirements: DEFAULT_PYTHON_REQUIREMENTS, status: 'published', publishedVersionId: pythonVersionId })
   })
   revalidatePath('/'); revalidatePath('/bots'); return { id: botId }
 }

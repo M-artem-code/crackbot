@@ -29,10 +29,22 @@ export async function ensurePythonWorkspace(botId: string) {
   const { workspace } = await requireWorkspace()
   const bot = await ownedBot(workspace.id, botId)
   const [existing] = await db.select().from(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, botId), eq(pythonWorkspaces.workspaceId, workspace.id))).limit(1)
-  if (existing) return existing
+  if (existing?.publishedVersionId) return existing
+  if (existing) {
+    const versionId = id('pyv')
+    await db.transaction(async (tx) => {
+      await tx.insert(pythonVersions).values({ id: versionId, workspaceId: workspace.id, botId, version: 1, code: existing.publishedCode, requirements: existing.publishedRequirements, author: 'system', changeSummary: 'Импорт исходной опубликованной версии' })
+      await tx.update(pythonWorkspaces).set({ publishedVersionId: versionId, updatedAt: new Date() }).where(and(eq(pythonWorkspaces.botId, botId), eq(pythonWorkspaces.workspaceId, workspace.id)))
+    })
+    return { ...existing, publishedVersionId: versionId }
+  }
   const [template] = await db.select().from(templates).where(eq(templates.id, bot.templateId)).limit(1)
   const code = pythonTemplateFor(template?.slug ?? 'v0-app')
-  const [created] = await db.insert(pythonWorkspaces).values({ botId, workspaceId: workspace.id, draftCode: code, draftRequirements: DEFAULT_PYTHON_REQUIREMENTS, publishedCode: code, publishedRequirements: DEFAULT_PYTHON_REQUIREMENTS, status: 'published' }).returning()
+  const versionId = id('pyv')
+  const [created] = await db.transaction(async (tx) => {
+    await tx.insert(pythonVersions).values({ id: versionId, workspaceId: workspace.id, botId, version: 1, code, requirements: DEFAULT_PYTHON_REQUIREMENTS, author: 'system', changeSummary: 'Начальная версия из шаблона' })
+    return tx.insert(pythonWorkspaces).values({ botId, workspaceId: workspace.id, draftCode: code, draftRequirements: DEFAULT_PYTHON_REQUIREMENTS, publishedCode: code, publishedRequirements: DEFAULT_PYTHON_REQUIREMENTS, status: 'published', publishedVersionId: versionId }).returning()
+  })
   return created
 }
 
