@@ -5,6 +5,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import { authenticateAgent, unauthorized } from '@/lib/agent-auth'
 import { db } from '@/lib/db'
 import { botRefs, bots, runs, templates } from '@/lib/db/schema'
+import { decryptRuntimeSecret } from '@/lib/runtime-secrets'
 import { AGENT_PROTOCOL_VERSION, isAgentCompatible, issueLeaseToken, LEASE_TTL_SECONDS } from '@/lib/run-leases'
 
 export const dynamic = 'force-dynamic'
@@ -49,6 +50,10 @@ export async function GET(req: Request) {
   const [botRow] = await db.select().from(bots).where(and(eq(bots.id, run.botId), eq(bots.workspaceId, agent.workspaceId))).limit(1)
   const [tplRow] = botRow ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1) : []
   const targetRows = await db.select().from(botRefs).where(and(eq(botRefs.botId, run.botId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.status, 'active'), sql`${botRefs.successCount} < ${botRefs.successLimit}`)).orderBy(asc(botRefs.position), asc(botRefs.id))
+  const storedConfig = (botRow?.config && typeof botRow.config === 'object' ? botRow.config : {}) as Record<string, unknown>
+  const { proxySecret, proxy: legacyProxy, ...publicConfig } = storedConfig
+  const runtimeProxy = decryptRuntimeSecret(proxySecret) ?? (typeof legacyProxy === 'string' ? legacyProxy : undefined)
+  const runtimeConfig = runtimeProxy ? { ...publicConfig, runtimeProxy } : publicConfig
 
   return Response.json({
     job: {
@@ -58,7 +63,7 @@ export async function GET(req: Request) {
       leaseExpiresInSeconds: LEASE_TTL_SECONDS,
       protocolVersion: AGENT_PROTOCOL_VERSION,
       scenario: run.scenarioSnapshot,
-      bot: botRow ? { id: botRow.id, name: botRow.name, targetUrl: botRow.targetUrl, workers: botRow.workers, config: botRow.config } : null,
+      bot: botRow ? { id: botRow.id, name: botRow.name, targetUrl: botRow.targetUrl, workers: botRow.workers, config: runtimeConfig } : null,
       template: tplRow ? { slug: tplRow.slug, engine: tplRow.engine, flowType: tplRow.flowType, fields: tplRow.fields, defaultConfig: tplRow.defaultConfig, scenarioSteps: tplRow.scenarioSteps } : null,
       targets: targetRows.map((target) => ({ id: target.id, url: target.url, label: target.label, position: target.position, successLimit: target.successLimit, successCount: target.successCount, remaining: Math.max(0, target.successLimit - target.successCount) })),
     },

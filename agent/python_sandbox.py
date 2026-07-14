@@ -8,6 +8,23 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+def _redact_runtime_text(value: Any, secrets: List[str]) -> str:
+    text = str(value)
+    for secret in sorted((item for item in secrets if item), key=len, reverse=True):
+        text = text.replace(secret, "[REDACTED]")
+    return text
+
+
+def _safe_target_url(value: Any) -> str:
+    try:
+        parts = urlsplit(str(value))
+        query = urlencode([(key, "[REDACTED]") for key, _ in parse_qsl(parts.query, keep_blank_values=True)])
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
+    except ValueError:
+        return "[invalid-url]"
 
 
 @dataclass
@@ -51,18 +68,21 @@ async def run_python_sandbox(job: Dict[str, Any], log: Callable[..., None]) -> S
         if not isinstance(content, str) or len(content.encode("utf-8")) > 512 * 1024:
             continue
         (root / safe_name).write_text(content, encoding="utf-8")
-    payload = {"runId": job.get("runId"), "bot": job.get("bot"), "target": target, "config": (job.get("bot") or {}).get("config") or {}}
+    runtime_config = (job.get("bot") or {}).get("config") or {}
+    payload = {"runId": job.get("runId"), "bot": job.get("bot"), "target": target, "config": runtime_config}
     (root / "input.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     wrapper = "set -eu; python -m pip install --disable-pip-version-check --no-input --requirement /workspace/requirements.txt; CRACKBOT_INPUT=/workspace/input.json python /workspace/bot.py"
     image = os.environ.get("CRACKBOT_PYTHON_IMAGE", "crackbot/nodriver-agent:latest")
     command = [runtime, "run", "--rm", "--init", "--network", "bridge", "--cpus", "2", "--memory", "2g", "--pids-limit", "256", "--shm-size", "512m", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=512m", "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--user", "1000:1000", "-v", f"{root}:/workspace:rw", "-w", "/workspace", image, "bash", "-lc", wrapper]
-    log("python-sandbox", f"Запуск bot.py для {target.get('url')}", metadata={"targetId": target.get("id")})
+    secrets = [str(runtime_config.get(key) or "") for key in ("runtimeProxy", "runtimePassword", "password")]
+    log("python-sandbox", f"Запуск bot.py для {_safe_target_url(target.get('url'))}", metadata={"targetId": target.get("id")})
     try:
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env={"PATH": os.environ.get("PATH", "")})
         stdout, _ = await asyncio.wait_for(process.communicate(), timeout=900)
-        output = stdout.decode("utf-8", errors="replace")[-50_000:]
-        result_line = next((line for line in reversed(output.splitlines()) if line.strip().startswith("{") and line.strip().endswith("}")), "")
+        raw_output = stdout.decode("utf-8", errors="replace")[-50_000:]
+        result_line = next((line for line in reversed(raw_output.splitlines()) if line.strip().startswith("{") and line.strip().endswith("}")), "")
         parsed = json.loads(result_line) if result_line else {}
+        output = _redact_runtime_text(raw_output, secrets)
         success = process.returncode == 0 and bool(parsed.get("success"))
         durable_artifacts = Path(tempfile.mkdtemp(prefix="crackbot-python-artifacts-"))
         paths = []
@@ -72,7 +92,8 @@ async def run_python_sandbox(job: Dict[str, Any], log: Callable[..., None]) -> S
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, destination)
                 paths.append(destination)
-        return SandboxResult(status="success" if success else "failed", success_count=1 if success else 0, failed_count=0 if success else 1, errors=[] if success else [str(parsed.get("message") or f"bot.py завершился с кодом {process.returncode}")], output=output, artifact_paths=paths, target_results=[{"id": int(target["id"]), "successCount": 1 if success else 0, "failedCount": 0 if success else 1}])
+        error_message = _redact_runtime_text(parsed.get("message") or f"bot.py завершился с кодом {process.returncode}", secrets)
+        return SandboxResult(status="success" if success else "failed", success_count=1 if success else 0, failed_count=0 if success else 1, errors=[] if success else [error_message], output=output, artifact_paths=paths, target_results=[{"id": int(target["id"]), "successCount": 1 if success else 0, "failedCount": 0 if success else 1}])
     except asyncio.TimeoutError:
         process.kill(); await process.wait()
         return SandboxResult(status="failed", failed_count=1, errors=["Python sandbox превысил лимит 15 минут"], output="Timeout")

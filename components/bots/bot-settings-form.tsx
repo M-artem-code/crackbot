@@ -42,7 +42,10 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
 
   const [name, setName] = React.useState(bot.name)
   const [workers, setWorkers] = React.useState(bot.workers)
-  const [proxy, setProxy] = React.useState(String(cfg.proxy ?? ''))
+  const proxyConfigured = Boolean(cfg.proxyConfigured)
+  const [proxy, setProxy] = React.useState('')
+  const [clearProxy, setClearProxy] = React.useState(false)
+  const [allowDirectFallback, setAllowDirectFallback] = React.useState(Boolean(cfg.allowDirectFallback))
   const [password, setPassword] = React.useState(String(cfg.password ?? ''))
   const [headless, setHeadless] = React.useState(
     cfg.headless === undefined ? true : Boolean(cfg.headless),
@@ -74,6 +77,8 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
           workers,
           config: {
             proxy,
+            clearProxy,
+            allowDirectFallback,
             password,
             headless,
             page_timeout: pageTimeout,
@@ -141,17 +146,31 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
             <Switch id="headless" checked={headless} onCheckedChange={setHeadless} />
           </Field>
           <Field>
-            <FieldLabel htmlFor="proxy">Прокси</FieldLabel>
-            <Input
-              id="proxy"
-              value={proxy}
-              onChange={(e) => setProxy(e.target.value)}
-              placeholder="host:port или http://user:pass@host:port"
-              className="font-mono"
-            />
+            <FieldLabel htmlFor="proxy">Пользовательский прокси</FieldLabel>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id="proxy"
+                type="password"
+                value={proxy}
+                onChange={(e) => { setProxy(e.target.value); setClearProxy(false) }}
+                placeholder={proxyConfigured && !clearProxy ? 'Секрет сохранён — введите только для замены' : 'http://user:pass@host:port'}
+                className="font-mono"
+                autoComplete="off"
+              />
+              {proxyConfigured && !clearProxy ? <Button type="button" variant="outline" onClick={() => { setProxy(''); setClearProxy(true) }}>Удалить</Button> : null}
+            </div>
             <FieldDescription>
-              Необязательно. Применяется ко всем воркерам бота
+              Значение шифруется и передаётся только назначенному агенту во время задания. Приоритет: этот прокси, затем проверенный бесплатный пул.
             </FieldDescription>
+          </Field>
+          <Field orientation="horizontal">
+            <div className="flex flex-col gap-0.5">
+              <FieldLabel htmlFor="direct-fallback">Разрешить прямое подключение</FieldLabel>
+              <FieldDescription>
+                Использовать сеть агента только когда пользовательский и бесплатные прокси недоступны
+              </FieldDescription>
+            </div>
+            <Switch id="direct-fallback" checked={allowDirectFallback} onCheckedChange={setAllowDirectFallback} />
           </Field>
 
           <FieldSeparator>Тайминги и OTP</FieldSeparator>

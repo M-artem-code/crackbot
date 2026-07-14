@@ -7,6 +7,7 @@ import { db } from '@/lib/db'
 import { botRefs, bots, pythonVersions, pythonWorkspaces, runs, scenarioVersions, templates } from '@/lib/db/schema'
 import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateAssetsFor, pythonTemplateFor } from '@/lib/python-templates'
 import { assertScenarioDefinition } from '@/lib/scenario/schema'
+import { encryptRuntimeSecret } from '@/lib/runtime-secrets'
 import { MAX_TARGET_LINKS, normalizeSuccessLimit, normalizeTargetLabel, normalizeTargetUrl } from '@/lib/target-links'
 import { requireWorkspace } from '@/lib/workspace'
 
@@ -94,12 +95,18 @@ export async function cancelRun(runId: string) {
 
 export async function updateBotStatus(botId: string, status: 'idle' | 'active' | 'paused' | 'error') { const { workspace } = await requireWorkspace(); await db.update(bots).set({ status, updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath('/bots'); revalidatePath(`/bots/${botId}`) }
 
-export interface UpdateBotSettingsInput { name: string; workers: number; config: { proxy?: string; headless?: boolean; page_timeout?: number; otp_timeout?: number; action_delay_min?: number; action_delay_max?: number; password?: string } }
+export interface UpdateBotSettingsInput { name: string; workers: number; config: { proxy?: string; clearProxy?: boolean; allowDirectFallback?: boolean; headless?: boolean; page_timeout?: number; otp_timeout?: number; action_delay_min?: number; action_delay_max?: number; password?: string } }
 export async function updateBotSettings(botId: string, input: UpdateBotSettingsInput) {
   const { workspace } = await requireWorkspace(); const name = input.name.trim(); if (!name) throw new Error('Имя бота обязательно')
   const [bot] = await db.select().from(bots).where(scopedBot(workspace.id, botId)).limit(1); if (!bot) throw new Error('Бот не найден')
-  const config: Record<string, unknown> = { ...(bot.config as Record<string, unknown>), headless: Boolean(input.config.headless) }; const setNum = (key: string, value?: number) => { if (typeof value === 'number' && Number.isFinite(value) && value > 0) config[key] = value }
+  const config: Record<string, unknown> = { ...(bot.config as Record<string, unknown>), headless: Boolean(input.config.headless), allowDirectFallback: Boolean(input.config.allowDirectFallback) }; const setNum = (key: string, value?: number) => { if (typeof value === 'number' && Number.isFinite(value) && value > 0) config[key] = value }
   setNum('page_timeout', input.config.page_timeout); setNum('otp_timeout', input.config.otp_timeout); setNum('action_delay_min', input.config.action_delay_min); setNum('action_delay_max', input.config.action_delay_max)
-  for (const key of ['proxy', 'password'] as const) { const value = (input.config[key] ?? '').trim(); if (value) config[key] = value; else delete config[key] }
+  const proxy = (input.config.proxy ?? '').trim()
+  const legacyProxy = typeof config.proxy === 'string' ? config.proxy.trim() : ''
+  if (proxy) config.proxySecret = encryptRuntimeSecret(proxy)
+  else if (input.config.clearProxy) delete config.proxySecret
+  else if (!config.proxySecret && legacyProxy) config.proxySecret = encryptRuntimeSecret(legacyProxy)
+  delete config.proxy
+  const password = (input.config.password ?? '').trim(); if (password) config.password = password; else delete config.password
   await db.update(bots).set({ name, workers: Math.min(10, Math.max(1, Math.round(input.workers || 1))), config, updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath('/bots'); revalidatePath(`/bots/${botId}`); revalidatePath('/'); return { ok: true as const }
 }
