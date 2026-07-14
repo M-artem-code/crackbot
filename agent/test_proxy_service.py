@@ -11,12 +11,21 @@ class ProxyServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(label, "http://proxy.example:3128")
         self.assertNotIn("password", label)
 
-    async def test_user_proxy_has_priority_without_health_download(self):
-        service = ProxyService(checker=AsyncMock(return_value=True))
+    async def test_healthy_user_proxy_has_priority_without_health_download(self):
+        checker = AsyncMock(return_value=True)
+        service = ProxyService(checker=checker)
         with patch.object(service, "_free_pool", AsyncMock(side_effect=AssertionError("free pool must not load"))):
-            selection = await service.select("socks5://proxy.example:1080", allow_direct=False)
+            selection = await service.select("socks5://user:secret@proxy.example:1080", allow_direct=False)
         self.assertEqual(selection.source, "user")
-        self.assertEqual(selection.proxy, "socks5://proxy.example:1080")
+        self.assertEqual(selection.proxy, "socks5://user:secret@proxy.example:1080")
+        checker.assert_awaited_once()
+
+    async def test_unhealthy_user_proxy_falls_back_to_free_pool(self):
+        service = ProxyService(checker=AsyncMock(return_value=False))
+        with patch.object(service, "_free_pool", AsyncMock(return_value=["http://free.example:8080"])):
+            selection = await service.select("http://broken.example:3128", allow_direct=False)
+        self.assertEqual(selection.source, "free")
+        self.assertEqual(selection.proxy, "http://free.example:8080")
 
     async def test_free_then_direct_then_unavailable(self):
         service = ProxyService()

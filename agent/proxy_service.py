@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import time
 import urllib.request
 from dataclasses import dataclass
@@ -41,24 +42,49 @@ def _download_source(protocol: str, url: str, limit: int) -> list[str]:
 
 
 async def check_proxy(proxy: str, timeout: float = 8.0) -> bool:
+    writer = None
     try:
         parts = urlsplit(proxy)
-        if not parts.hostname or not parts.port or parts.username or parts.password:
+        if not parts.hostname or not parts.port:
             return False
         reader, writer = await asyncio.wait_for(asyncio.open_connection(parts.hostname, parts.port), timeout)
+        username = (parts.username or "").encode()
+        password = (parts.password or "").encode()
         if parts.scheme == "socks5":
-            writer.write(b"\x05\x01\x00")
+            methods = b"\x00\x02" if username else b"\x00"
+            writer.write(b"\x05" + bytes([len(methods)]) + methods)
             await writer.drain()
-            ok = await asyncio.wait_for(reader.readexactly(2), timeout) == b"\x05\x00"
+            response = await asyncio.wait_for(reader.readexactly(2), timeout)
+            if response == b"\x05\x02" and username:
+                if len(username) > 255 or len(password) > 255:
+                    return False
+                writer.write(b"\x01" + bytes([len(username)]) + username + bytes([len(password)]) + password)
+                await writer.drain()
+                if await asyncio.wait_for(reader.readexactly(2), timeout) != b"\x01\x00":
+                    return False
+            elif response != b"\x05\x00":
+                return False
+            writer.write(b"\x05\x01\x00\x01\x01\x01\x01\x01\x00\x50")
+            await writer.drain()
+            ok = (await asyncio.wait_for(reader.readexactly(4), timeout))[1] == 0
         else:
-            writer.write(b"CONNECT 1.1.1.1:80 HTTP/1.1\r\nHost: 1.1.1.1:80\r\n\r\n")
+            authorization = b""
+            if username:
+                token = base64.b64encode(username + b":" + password)
+                authorization = b"Proxy-Authorization: Basic " + token + b"\r\n"
+            writer.write(b"CONNECT 1.1.1.1:80 HTTP/1.1\r\nHost: 1.1.1.1:80\r\n" + authorization + b"\r\n")
             await writer.drain()
             ok = b" 200 " in await asyncio.wait_for(reader.read(1024), timeout)
-        writer.close()
-        await writer.wait_closed()
         return ok
     except (OSError, ValueError, asyncio.TimeoutError, asyncio.IncompleteReadError):
         return False
+    finally:
+        if writer is not None:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except OSError:
+                pass
 
 
 @dataclass(frozen=True)
@@ -91,7 +117,7 @@ class ProxyService:
 
     async def select(self, user_proxy: object, *, allow_direct: bool) -> ProxySelection:
         configured = normalize_proxy(user_proxy)
-        if configured:
+        if configured and await self.checker(configured):
             return ProxySelection(configured, "user")
         pool = await self._free_pool()
         if pool:
