@@ -128,6 +128,9 @@ export const runs = pgTable("runs", {
   agentId: text("agent_id"),
   scenarioVersionId: text("scenario_version_id"),
   scheduleId: text("schedule_id"),
+  scheduleFiringId: text("schedule_firing_id"),
+  source: text("source").notNull().default("manual"),
+  scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   scenarioSnapshot: jsonb("scenario_snapshot").notNull().default({
     version: 1,
     name: "Untitled scenario",
@@ -181,6 +184,18 @@ export const schedules = pgTable("schedules", {
   enabled: boolean("enabled").notNull().default(true),
   nextRunAt: timestamp("next_run_at", { withTimezone: true }).notNull(),
   lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const scheduleFirings = pgTable("schedule_firings", {
+  id: text("id").primaryKey(),
+  scheduleId: text("schedule_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  plannedAt: timestamp("planned_at", { withTimezone: true }).notNull(),
+  runId: text("run_id"),
+  status: text("status").notNull().default("created"),
+  error: text("error"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
@@ -249,6 +264,7 @@ export type LogStep = typeof logSteps.$inferSelect
 export type RunArtifact = typeof runArtifacts.$inferSelect
 export type Agent = typeof agents.$inferSelect
 export type Schedule = typeof schedules.$inferSelect
+export type ScheduleFiring = typeof scheduleFirings.$inferSelect
 export type Notification = typeof notifications.$inferSelect
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect
 export type TestOtpChallenge = typeof testOtpChallenges.$inferSelect

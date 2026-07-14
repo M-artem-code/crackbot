@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { and, eq, lte, sql } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
-import { bots, runs, schedules, templates } from '@/lib/db/schema'
+import { bots, runs, scheduleFirings, schedules, templates } from '@/lib/db/schema'
 import { getNextRunAt, type ScheduleKind } from '@/lib/scheduling'
 
 export async function GET(request: Request) {
@@ -17,10 +17,15 @@ export async function GET(request: Request) {
       if (!bot) { await tx.update(schedules).set({ enabled: false, updatedAt: new Date() }).where(eq(schedules.id, schedule.id)); continue }
       const [template] = await tx.select().from(templates).where(eq(templates.id, bot.templateId)).limit(1)
       if (!template) continue
+      const plannedAt = schedule.nextRunAt
+      const firingId = `fir_${randomUUID().replaceAll('-', '')}`
       const runId = `run_${randomUUID().replaceAll('-', '')}`
-      await tx.insert(runs).values({ id: runId, workspaceId: schedule.workspaceId, botId: bot.id, scheduleId: schedule.id, status: 'queued', totalWorkers: bot.workers, scenarioVersionId: bot.publishedScenarioVersionId, scenarioSnapshot: bot.scenarioPublished ?? template.scenarioDefinition })
+      await tx.insert(scheduleFirings).values({ id: firingId, scheduleId: schedule.id, workspaceId: schedule.workspaceId, plannedAt, runId, status: 'dispatched' }).onConflictDoNothing()
+      const [firing] = await tx.select({ runId: scheduleFirings.runId }).from(scheduleFirings).where(and(eq(scheduleFirings.scheduleId, schedule.id), eq(scheduleFirings.plannedAt, plannedAt))).limit(1)
+      if (firing?.runId !== runId) continue
+      await tx.insert(runs).values({ id: runId, workspaceId: schedule.workspaceId, botId: bot.id, scheduleId: schedule.id, scheduleFiringId: firingId, source: 'scheduled', scheduledFor: plannedAt, status: 'queued', totalWorkers: bot.workers, scenarioVersionId: bot.publishedScenarioVersionId, scenarioSnapshot: bot.scenarioPublished ?? template.scenarioDefinition })
       await tx.update(bots).set({ status: 'active', updatedAt: new Date() }).where(and(eq(bots.id, bot.id), eq(bots.workspaceId, schedule.workspaceId)))
-      const nextRunAt = getNextRunAt({ kind: schedule.kind as ScheduleKind, intervalMinutes: schedule.intervalMinutes, timeOfDay: schedule.timeOfDay, weekdays: schedule.weekdays as number[], timezone: schedule.timezone, from: new Date() })
+      const nextRunAt = getNextRunAt({ kind: schedule.kind as ScheduleKind, intervalMinutes: schedule.intervalMinutes, timeOfDay: schedule.timeOfDay, weekdays: schedule.weekdays as number[], timezone: schedule.timezone, from: plannedAt })
       await tx.update(schedules).set({ lastRunAt: new Date(), nextRunAt, updatedAt: new Date() }).where(eq(schedules.id, schedule.id))
       runIds.push(runId)
     }
