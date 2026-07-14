@@ -55,6 +55,31 @@ export const workspaces = pgTable("workspaces", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+export const workspaceAiProviders = pgTable("workspace_ai_providers", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  name: text("name").notNull(),
+  providerType: text("provider_type").notNull().default("openai-compatible"),
+  baseUrl: text("base_url").notNull(),
+  modelId: text("model_id").notNull(),
+  encryptedApiKey: text("encrypted_api_key").notNull(),
+  keyPrefix: text("key_prefix").notNull().default(""),
+  isActive: boolean("is_active").notNull().default(false),
+  lastTestStatus: text("last_test_status"),
+  lastTestMessage: text("last_test_message").notNull().default(""),
+  lastTestedAt: timestamp("last_tested_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const assistantMessages = pgTable("assistant_messages", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
 export const templates = pgTable("templates", {
   id: text("id").primaryKey(),
   slug: text("slug").notNull().unique(),

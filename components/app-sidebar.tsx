@@ -12,6 +12,7 @@ import {
   ServerIcon,
   SparklesIcon,
   ListChecksIcon,
+  Settings2Icon,
   TerminalIcon,
 } from 'lucide-react'
 
@@ -38,6 +39,7 @@ const navItems = [
   { title: 'Уведомления', href: '/notifications', icon: BellIcon },
   { title: 'Создать бота', href: '/create', icon: PlusCircleIcon },
   { title: 'AI-ассистент', href: '/assistant', icon: SparklesIcon },
+  { title: 'Настройки AI', href: '/settings/ai', icon: Settings2Icon },
 ]
 
 export function AppSidebar({ user, workspaceName, unreadNotifications = 0 }: { user: { name: string; email: string }; workspaceName: string; unreadNotifications?: number }) {
