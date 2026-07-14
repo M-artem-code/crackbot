@@ -11,6 +11,7 @@ import { Label } from '@/components/ui/label'
 
 const presets = [
   { label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', modelId: 'gpt-4.1-mini' },
+  { label: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/v1', modelId: 'claude-sonnet-4-6' },
   { label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', modelId: 'openai/gpt-4.1-mini' },
   { label: 'Groq compatible', baseUrl: 'https://api.groq.com/openai/v1', modelId: 'llama-3.3-70b-versatile' },
   { label: 'Другой OpenAI-compatible', baseUrl: '', modelId: '' },
@@ -40,7 +41,7 @@ export function AiProviderSettings({ providers }: { providers: AiProviderSummary
           <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground"><KeyRoundIcon className="size-4" /></div>
           <div className="flex flex-col gap-1">
             <h2 className="font-semibold">Подключить свой AI API</h2>
-            <p className="text-sm leading-relaxed text-muted-foreground">Ключ шифруется перед сохранением и никогда не возвращается в браузер. Поддерживаются OpenAI и сервисы с OpenAI-compatible Chat Completions API.</p>
+            <p className="text-sm leading-relaxed text-muted-foreground">Ключ шифруется перед сохранением и никогда не возвращается в браузер. Поддерживаются OpenAI, OpenCode Zen и сервисы с OpenAI-compatible Chat Completions API.</p>
           </div>
         </div>
 
@@ -53,7 +54,7 @@ export function AiProviderSettings({ providers }: { providers: AiProviderSummary
             <div className="flex flex-col gap-2"><Label htmlFor="provider-model">ID модели</Label><Input id="provider-model" name="modelId" defaultValue={preset.modelId} key={`model-${preset.label}`} placeholder="gpt-4.1-mini" required maxLength={120} /></div>
           </div>
           <div className="flex flex-col gap-2"><Label htmlFor="provider-url">Base URL API</Label><Input id="provider-url" name="baseUrl" type="url" defaultValue={preset.baseUrl} key={`url-${preset.label}`} placeholder="https://api.example.com/v1" required /></div>
-          <div className="flex flex-col gap-2"><Label htmlFor="provider-key">API-ключ</Label><Input id="provider-key" name="apiKey" type="password" autoComplete="off" placeholder="sk-••••••••••••" required minLength={8} /></div>
+          <div className="flex flex-col gap-2"><Label htmlFor="provider-key">API-ключ</Label><Input id="provider-key" name="apiKey" type="password" autoComplete="off" placeholder="sk-••••••••••••" required minLength={8} />{preset.label === 'OpenCode Zen' ? <p className="text-xs leading-relaxed text-muted-foreground">Используйте ключ из OpenCode Zen. Модель можно заменить на любой ID из каталога Zen, например <span className="font-mono">deepseek-v4-flash-free</span>.</p> : null}</div>
           <div className="flex items-center justify-between gap-3"><p className="text-xs text-muted-foreground">Сохранённый провайдер автоматически становится активным.</p><Button type="submit" disabled={pending}>{pending ? <Loader2Icon className="size-4 animate-spin" /> : <PlugZapIcon className="size-4" />}Подключить</Button></div>
         </form>
         {message ? <p className="mt-4 rounded-lg border bg-muted p-3 text-sm" role="status">{message}</p> : null}
