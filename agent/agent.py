@@ -24,9 +24,11 @@ import nodriver as uc
 
 from api_client import ApiError, CrackbotClient, StepBuffer
 from config import AgentConfig, load_config
+from proxy_service import ProxyService, safe_proxy_label
 from python_sandbox import run_python_sandbox
 from runner import PendingArtifact, RunResult, RunnerConfig, run_job
 
+PROXY_SERVICE = ProxyService()
 LEVEL_ICON = {"info": "·", "success": "✓", "warn": "!", "error": "✗"}
 
 
@@ -111,7 +113,22 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
     lease_task = asyncio.create_task(lease_heartbeat())
 
     try:
-        runner_cfg = RunnerConfig.from_job(job, default_headless=cfg.headless, default_proxy=cfg.proxy)
+        bot = job.get("bot") or {}
+        runtime_config = dict(bot.get("config") or {})
+        selection = await PROXY_SERVICE.select(
+            runtime_config.get("runtimeProxy") or cfg.proxy,
+            allow_direct=bool(runtime_config.get("allowDirectFallback", False)),
+        )
+        if selection.source == "unavailable":
+            raise RuntimeError("Нет доступного пользовательского или бесплатного прокси; direct fallback отключён")
+        if selection.proxy:
+            runtime_config["runtimeProxy"] = selection.proxy
+            log("proxy", f"Выбран {selection.source} proxy {safe_proxy_label(selection.proxy)}")
+        else:
+            runtime_config.pop("runtimeProxy", None)
+            log("proxy", "Используется разрешённое прямое подключение", level="warn")
+        job["bot"] = {**bot, "config": runtime_config}
+        runner_cfg = RunnerConfig.from_job(job, default_headless=cfg.headless, default_proxy=selection.proxy)
 
         async def should_cancel() -> bool:
             try:

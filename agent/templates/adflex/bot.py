@@ -15,8 +15,6 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse
 
-import requests
-
 import nodriver as uc
 from nodriver.cdp import page as cdp_page, network as cdp_network, runtime as cdp_runtime
 
@@ -373,90 +371,6 @@ class LocalProxy:
         await asyncio.gather(forward(r1, w2), forward(r2, w1))
 
 
-FREE_HTTP_URL = "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/http/data.txt"
-FREE_SOCKS5_URL = "https://cdn.jsdelivr.net/gh/proxifly/free-proxy-list@main/proxies/protocols/socks5/data.txt"
-
-
-def _fetch_free_list(url, protocol="http"):
-    try:
-        r = requests.get(url, timeout=15)
-        r.raise_for_status()
-    except Exception:
-        return []
-    proxies = []
-    for raw in r.text.split("\n"):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if any(line.startswith(p) for p in ("http://", "https://", "socks5://", "socks4://")):
-            proxies.append(line)
-        elif ":" in line:
-            proxies.append(f"{protocol}://{line}")
-    return proxies
-
-
-async def _test_http_proxy(proxy_url: str) -> bool:
-    try:
-        raw = proxy_url.replace("http://", "")
-        host, port = raw.rsplit(":", 1)
-        r, w = await asyncio.wait_for(asyncio.open_connection(host, int(port)), timeout=8)
-        w.write(b"CONNECT 1.1.1.1:80 HTTP/1.1\r\nHost: 1.1.1.1:80\r\n\r\n")
-        await w.drain()
-        resp = await asyncio.wait_for(r.read(1024), timeout=8)
-        w.close()
-        return b"200" in resp
-    except Exception:
-        return False
-
-
-async def _test_socks5_proxy(proxy_url: str) -> bool:
-    try:
-        raw = proxy_url.replace("socks5://", "")
-        host, port = raw.rsplit(":", 1)
-        r, w = await asyncio.wait_for(asyncio.open_connection(host, int(port)), timeout=8)
-        w.write(b'\x05\x01\x00')
-        await w.drain()
-        resp = await asyncio.wait_for(r.read(2), timeout=8)
-        if resp != b'\x05\x00':
-            w.close()
-            return False
-        w.write(b'\x05\x01\x00\x01' + b'\x01\x01\x01\x01' + (80).to_bytes(2, 'big'))
-        await w.drain()
-        resp = await asyncio.wait_for(r.read(10), timeout=8)
-        w.close()
-        return len(resp) >= 2 and resp[1] == 0
-    except Exception:
-        return False
-
-
-async def fetch_working_free_proxies() -> list:
-    try:
-        loop = asyncio.get_event_loop()
-        http_urls, socks5_urls = await asyncio.gather(
-            loop.run_in_executor(None, lambda: _fetch_free_list(FREE_HTTP_URL, "http")),
-            loop.run_in_executor(None, lambda: _fetch_free_list(FREE_SOCKS5_URL, "socks5")),
-            return_exceptions=True,
-        )
-        http_urls = http_urls if isinstance(http_urls, list) else []
-        socks5_urls = socks5_urls if isinstance(socks5_urls, list) else []
-
-        log(f"free proxies: testing CONNECT {len(http_urls)} + SOCKS5 {len(socks5_urls)}...")
-
-        http_tasks = [_test_http_proxy(u) for u in http_urls]
-        socks5_tasks = [_test_socks5_proxy(u) for u in socks5_urls]
-
-        results = await asyncio.gather(*http_tasks, *socks5_tasks, return_exceptions=True)
-        http_ok = [u for u, ok in zip(http_urls, results[:len(http_urls)]) if ok is True]
-        socks5_ok = [u for u, ok in zip(socks5_urls, results[len(http_urls):]) if ok is True]
-
-        total = http_ok + socks5_ok
-        log(f"free proxies: HTTP {len(http_ok)}/{len(http_urls)} + SOCKS5 {len(socks5_ok)}/{len(socks5_urls)} = {len(total)} working")
-        return total
-    except Exception as e:
-        log(f"free proxies error: {e}")
-        return []
-
-
 async def run_once(ref_url: str, proxy: str | None = None, logfile: str | None = None, account_password: str | None = None) -> str:
     if logfile:
         set_logfile(logfile)
@@ -672,11 +586,8 @@ async def crackbot_job_main():
     # Proxy credentials are injected only at runtime and never stored in bot.py.
     proxy = str(config.get("runtimeProxy") or "").strip() or None
     allow_direct = bool(config.get("allowDirectFallback", False))
-    if not proxy:
-        free_proxies = await fetch_working_free_proxies()
-        proxy = free_proxies[0] if free_proxies else None
     if not proxy and not allow_direct:
-        print(json.dumps({"success": False, "message": "No healthy user or free proxy; direct fallback is disabled"}, ensure_ascii=False))
+        print(json.dumps({"success": False, "message": "Agent did not provide a proxy and direct fallback is disabled"}, ensure_ascii=False))
         return
 
     account_password = str(config.get("runtimePassword") or "").strip() or None
@@ -693,12 +604,6 @@ if __name__ == "__main__":
     if os.environ.get("CRACKBOT_INPUT"):
         asyncio.run(crackbot_job_main())
     else:
-        free = asyncio.run(fetch_working_free_proxies())
-        if free:
-            _free_pool = free
-            _proxy_pool = _base_pool + _free_pool
-            log(f"total pool: {len(_proxy_pool)} proxies ({len(_free_pool)} free)")
-
         while True:
             try:
                 asyncio.run(main())
