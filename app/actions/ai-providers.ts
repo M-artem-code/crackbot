@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { generateText } from 'ai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
@@ -22,6 +23,12 @@ function clean(value: FormDataEntryValue | null, max: number) {
 function keyPrefix(key: string) {
   if (key.length <= 8) return '••••••••'
   return `${key.slice(0, 5)}••••${key.slice(-3)}`
+}
+
+function safeProviderError(error: unknown, secret?: string) {
+  let message = error instanceof Error ? error.message : 'Провайдер отклонил запрос'
+  if (secret) message = message.replaceAll(secret, '[REDACTED]')
+  return message.replace(/(?:sk|key|token)-[A-Za-z0-9_-]{8,}/gi, '[REDACTED]').slice(0, 240)
 }
 
 export async function getAiProviders() {
@@ -47,6 +54,13 @@ export async function saveAiProvider(formData: FormData) {
   const modelId = clean(formData.get('modelId'), MAX_MODEL)
   const apiKey = clean(formData.get('apiKey'), 500)
   if (!name || !modelId || apiKey.length < 8) throw new Error('Заполните название, модель и корректный API-ключ')
+
+  try {
+    const provider = createOpenAICompatible({ name: 'workspace-preflight', baseURL: baseUrl, apiKey })
+    await generateText({ model: provider(modelId), prompt: 'Ответь только словом OK', maxOutputTokens: 8 })
+  } catch (error) {
+    throw new Error(`Не удалось проверить ключ или модель: ${safeProviderError(error, apiKey)}`)
+  }
 
   const id = `aip_${randomUUID().replaceAll('-', '')}`
   await db.transaction(async (tx) => {
@@ -93,7 +107,7 @@ export async function testAiProvider(id: string) {
     revalidatePath('/settings/ai')
     return { ok: true, message }
   } catch (error) {
-    const message = error instanceof Error ? error.message.slice(0, 240) : 'Неизвестная ошибка провайдера'
+    const message = safeProviderError(error)
     await db.update(workspaceAiProviders).set({ lastTestStatus: 'failed', lastTestMessage: message, lastTestedAt: new Date(), updatedAt: new Date() }).where(and(eq(workspaceAiProviders.id, id), eq(workspaceAiProviders.workspaceId, workspace.id)))
     revalidatePath('/settings/ai')
     return { ok: false, message }

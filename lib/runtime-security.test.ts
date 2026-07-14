@@ -32,8 +32,9 @@ describe('runtime secrets', () => {
 
   it('rejects tampered and legacy plaintext values', () => {
     const encrypted = encryptRuntimeSecret('sensitive')
-    const replacement = encrypted.endsWith('A') ? 'B' : 'A'
-    expect(decryptRuntimeSecret(`${encrypted.slice(0, -1)}${replacement}`)).toBeUndefined()
+    const index = Math.floor(encrypted.length / 2)
+    const replacement = encrypted[index] === 'A' ? 'B' : 'A'
+    expect(decryptRuntimeSecret(`${encrypted.slice(0, index)}${replacement}${encrypted.slice(index + 1)}`)).toBeUndefined()
     expect(decryptRuntimeSecret('http://plaintext-proxy')).toBeUndefined()
   })
 

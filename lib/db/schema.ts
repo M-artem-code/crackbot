@@ -360,7 +360,7 @@ export const agents = pgTable("agents", {
   keyPrefix: text("key_prefix"),
   keyCreatedAt: timestamp("key_created_at", { withTimezone: true }),
   os: text("os").notNull().default(""),
-  protocolVersion: integer("protocol_version").notNull().default(1),
+  protocolVersion: integer("protocol_version").notNull().default(2),
   capabilities: jsonb("capabilities").notNull().default([]),
   status: text("status").notNull().default("offline"),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),

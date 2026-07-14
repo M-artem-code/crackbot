@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 
 import { streamText, type ModelMessage } from 'ai'
-import { and, asc, desc, eq } from 'drizzle-orm'
+import { asc, desc, eq } from 'drizzle-orm'
 
 import { getActiveAiProvider } from '@/lib/ai-provider'
 import { db } from '@/lib/db'

@@ -51,8 +51,9 @@ export function AssistantChat({ initialHistory, provider }: { initialHistory: Ch
     const trimmed = text.trim()
     if (!trimmed || isTyping || !provider) return
 
-    const userMessage: ChatMessage = { id: `m-${Date.now()}-u`, role: "user", content: trimmed }
-    const assistantId = `m-${Date.now()}-a`
+    const messageIndex = messages.length
+    const userMessage: ChatMessage = { id: `m-${messageIndex}-u`, role: "user", content: trimmed }
+    const assistantId = `m-${messageIndex}-a`
     const nextMessages = [...messages, userMessage]
     setMessages([...nextMessages, { id: assistantId, role: "assistant", content: "" }])
     setInput("")
@@ -72,13 +73,14 @@ export function AssistantChat({ initialHistory, provider }: { initialHistory: Ch
       if (!response.body) throw new Error('Пустой поток ответа')
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
-      let content = ''
-      while (true) {
+      async function consumeStream(content: string): Promise<void> {
         const { done, value } = await reader.read()
-        if (done) break
-        content += decoder.decode(value, { stream: true })
-        setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content } : item))
+        if (done) return
+        const nextContent = content + decoder.decode(value, { stream: true })
+        setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content: nextContent } : item))
+        await consumeStream(nextContent)
       }
+      await consumeStream('')
     } catch (cause) {
       setMessages((current) => current.filter((item) => item.id !== assistantId))
       setError(cause instanceof Error ? cause.message : 'Не удалось получить ответ')
