@@ -18,6 +18,11 @@ RUN useradd --create-home --uid 1000 runner \
     && mkdir -p /workspace \
     && chown runner:runner /workspace
 
-USER runner
 WORKDIR /workspace
-CMD ["python", "--version"]
+COPY --chown=runner:runner requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+COPY --chown=runner:runner . .
+
+USER runner
+ENV HOME=/home/runner
+CMD ["python", "agent.py"]
