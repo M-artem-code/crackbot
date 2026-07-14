@@ -6,25 +6,23 @@ import { revalidatePath } from 'next/cache'
 import { db } from '@/lib/db'
 import { botRefs, bots, runs, scenarioVersions, templates } from '@/lib/db/schema'
 import { assertScenarioDefinition } from '@/lib/scenario/schema'
+import { MAX_TARGET_LINKS, normalizeSuccessLimit, normalizeTargetLabel, normalizeTargetUrl } from '@/lib/target-links'
 import { requireWorkspace } from '@/lib/workspace'
 
 function genId(prefix: string) { return `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}` }
 function scopedBot(workspaceId: string, botId: string) { return and(eq(bots.id, botId), eq(bots.workspaceId, workspaceId)) }
 
-export interface TargetLinkInput { url: string; successLimit: number }
+export interface TargetLinkInput { url: string; label?: string; successLimit: number }
 export interface CreateBotInput { name: string; templateId: string; workers?: number; config?: Record<string, unknown>; targetLinks: TargetLinkInput[] }
 
 function normalizeTargetLinks(links: TargetLinkInput[]) {
+  if (links.length > MAX_TARGET_LINKS) throw new Error(`В одном пуле может быть не больше ${MAX_TARGET_LINKS} ссылок`)
   const seen = new Set<string>()
-  return links.map((link) => {
-    const raw = link.url.trim()
-    let url: URL
-    try { url = new URL(raw) } catch { throw new Error(`Некорректная целевая ссылка: ${raw || 'пустая строка'}`) }
-    if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Целевые ссылки должны начинаться с http:// или https://')
-    const normalized = url.toString()
-    if (seen.has(normalized)) throw new Error(`Ссылка добавлена дважды: ${normalized}`)
-    seen.add(normalized)
-    return { url: normalized, successLimit: Math.min(10000, Math.max(1, Math.round(link.successLimit || 1))) }
+  return links.map((link, position) => {
+    const url = normalizeTargetUrl(link.url)
+    if (seen.has(url)) throw new Error(`Ссылка добавлена дважды: ${url}`)
+    seen.add(url)
+    return { url, label: normalizeTargetLabel(link.label ?? ''), position, successLimit: normalizeSuccessLimit(link.successLimit) }
   })
 }
 
@@ -46,10 +44,6 @@ export async function createBot(input: CreateBotInput) {
 export async function enqueueRun(botId: string) {
   const { workspace } = await requireWorkspace(); const [bot] = await db.select().from(bots).where(scopedBot(workspace.id, botId)).limit(1); if (!bot) throw new Error('Бот не найден')
   const [template] = await db.select().from(templates).where(eq(templates.id, bot.templateId)).limit(1); if (!template) throw new Error('Шаблон бота не найден')
-  const existingTargets = await db.select({ id: botRefs.id }).from(botRefs).where(and(eq(botRefs.botId, botId), eq(botRefs.workspaceId, workspace.id))).limit(1)
-  if (!existingTargets.length && bot.targetUrl.trim()) {
-    await db.insert(botRefs).values({ workspaceId: workspace.id, botId, url: bot.targetUrl.trim(), successLimit: 10, status: 'active' })
-  }
   const activeTargets = await db.select({ id: botRefs.id }).from(botRefs).where(and(eq(botRefs.botId, botId), eq(botRefs.workspaceId, workspace.id), eq(botRefs.status, 'active'))).limit(1)
   if (!activeTargets.length) throw new Error('В пуле нет активных целевых ссылок с незавершённым лимитом')
   const runId = genId('run'); await db.insert(runs).values({ id: runId, workspaceId: workspace.id, botId, status: 'queued', totalWorkers: bot.workers, scenarioVersionId: bot.publishedScenarioVersionId, scenarioSnapshot: assertScenarioDefinition(bot.scenarioPublished ?? template.scenarioDefinition) })
@@ -84,7 +78,7 @@ export async function testScenarioStep(botId: string, value: unknown, stepIndex:
 }
 
 export async function cancelRun(runId: string) {
-  const { workspace } = await requireWorkspace(); const runScope = and(eq(runs.id, runId), eq(runs.workspaceId, workspace.id)); const [run] = await db.select().from(runs).where(runScope).limit(1); if (!run) throw new Error('Прогон не найден'); if (['success', 'failed', 'cancelled'].includes(run.status)) return { cancelled: false }
+  const { workspace } = await requireWorkspace(); const runScope = and(eq(runs.id, runId), eq(runs.workspaceId, workspace.id)); const [run] = await db.select().from(runs).where(runScope).limit(1); if (!run) throw new Error('Прогон не найден'); if (['success', 'partial', 'failed', 'cancelled'].includes(run.status)) return { cancelled: false }
   if (run.status === 'queued') { await db.update(runs).set({ status: 'cancelled', cancelRequestedAt: new Date(), finishedAt: new Date() }).where(runScope); await db.update(bots).set({ status: 'idle', updatedAt: new Date() }).where(scopedBot(workspace.id, run.botId)) } else await db.update(runs).set({ cancelRequestedAt: new Date() }).where(runScope)
   revalidatePath(`/bots/${run.botId}`); return { cancelled: true }
 }

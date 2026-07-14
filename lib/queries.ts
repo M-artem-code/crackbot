@@ -41,7 +41,7 @@ export async function getBots(): Promise<Bot[]> {
   const [botRows, tplRows, refRows, runRows, versionRows] = await Promise.all([
     db.select().from(bots).where(eq(bots.workspaceId, scope)).orderBy(desc(bots.createdAt)),
     db.select().from(templates),
-    db.select().from(botRefs).where(eq(botRefs.workspaceId, scope)).orderBy(asc(botRefs.id)),
+    db.select().from(botRefs).where(eq(botRefs.workspaceId, scope)).orderBy(asc(botRefs.position), asc(botRefs.id)),
     db.select().from(runs).where(eq(runs.workspaceId, scope)),
     db.select().from(scenarioVersions).where(eq(scenarioVersions.workspaceId, scope)).orderBy(desc(scenarioVersions.version)),
   ])

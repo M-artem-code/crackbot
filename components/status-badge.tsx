@@ -21,6 +21,7 @@ export function BotStatusBadge({ status }: { status: BotStatus }) {
 
 const runStatusConfig: Record<RunStatus, { label: string; className: string }> = {
   success: { label: "Успех", className: "border-primary/40 text-primary" },
+  partial: { label: "Частично", className: "border-warning/40 text-warning" },
   failed: { label: "Ошибка", className: "border-destructive/40 text-destructive" },
   cancelled: { label: "Отменён", className: "border-muted-foreground/40 text-muted-foreground" },
   running: { label: "Выполняется", className: "border-warning/40 text-warning" },

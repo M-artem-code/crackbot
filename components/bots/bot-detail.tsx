@@ -65,7 +65,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
     fetcher,
     {
       refreshInterval: (data) =>
-        data && ['success', 'failed', 'cancelled'].includes(data.status) ? 0 : 1000,
+        data && ['success', 'partial', 'failed', 'cancelled'].includes(data.status) ? 0 : 1000,
       revalidateOnFocus: true,
     },
   )
@@ -74,7 +74,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
   )
 
   React.useEffect(() => {
-    if (liveRun && ['success', 'failed', 'cancelled'].includes(liveRun.status)) {
+    if (liveRun && ['success', 'partial', 'failed', 'cancelled'].includes(liveRun.status)) {
       setSelectedRun(liveRun)
       router.refresh()
     }

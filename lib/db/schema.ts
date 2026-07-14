@@ -107,6 +107,8 @@ export const botRefs = pgTable("bot_refs", {
   workspaceId: text("workspace_id"),
   botId: text("bot_id").notNull(),
   url: text("url").notNull(),
+  label: text("label").notNull().default(""),
+  position: integer("position").notNull().default(0),
   successLimit: integer("success_limit").notNull().default(10),
   successCount: integer("success_count").notNull().default(0),
   failedCount: integer("failed_count").notNull().default(0),

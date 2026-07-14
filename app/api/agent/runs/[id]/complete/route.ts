@@ -9,7 +9,7 @@ import { and, eq, sql } from "drizzle-orm"
 export const dynamic = "force-dynamic"
 
 interface CompleteBody {
-  status?: "success" | "failed" | "cancelled"
+  status?: "success" | "partial" | "failed" | "cancelled"
   successCount?: number
   failedCount?: number
   durationMs?: number
@@ -41,9 +41,11 @@ export async function POST(
     ? "cancelled"
     : body.status === "success"
       ? "success"
-      : body.status === "cancelled"
-        ? "cancelled"
-        : "failed"
+      : body.status === "partial"
+        ? "partial"
+        : body.status === "cancelled"
+          ? "cancelled"
+          : "failed"
   const successCount = Math.max(0, Math.trunc(body.successCount ?? (status === "success" ? 1 : 0)))
   const failedCount = Math.max(0, Math.trunc(body.failedCount ?? (status === "failed" ? 1 : 0)))
 

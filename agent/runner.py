@@ -19,6 +19,7 @@ from test_mail_client import TestStandMailClient
 LogFn = Callable[..., None]
 CancelFn = Callable[[], Awaitable[bool]]
 TERMINAL_SUCCESS = "success"
+TERMINAL_PARTIAL = "partial"
 TERMINAL_FAILED = "failed"
 TERMINAL_CANCELLED = "cancelled"
 
@@ -420,6 +421,7 @@ async def run_job(job: Dict[str, Any], cfg: RunnerConfig, log: LogFn, should_can
     bot_config = bot.get("config") or {}
     targets = job.get("targets") or ([job.get("ref")] if job.get("ref") else [])
     cancelled = False
+    retry_budget = max(1, int(bot_config.get("target_retry_budget") or 3))
     for target in targets:
         if not target or await cancel():
             cancelled = True
@@ -429,8 +431,10 @@ async def run_job(job: Dict[str, Any], cfg: RunnerConfig, log: LogFn, should_can
         remaining = max(0, int(target.get("remaining") or (int(target.get("successLimit") or 0) - int(target.get("successCount") or 0))))
         target_success = 0
         target_failed = 0
-        log("target", f"Целевая ссылка {target_url}; осталось успехов={remaining}", metadata={"targetId": target_id, "targetUrl": target_url})
-        while target_success < remaining and not cancelled:
+        failed_batches = 0
+        target_label = str(target.get("label") or "")
+        log("target", f"Целевая ссылка {target_label or target_url}; осталось успехов={remaining}", metadata={"targetId": target_id, "targetUrl": target_url, "targetLabel": target_label})
+        while target_success < remaining and not cancelled and failed_batches < retry_budget:
             batch_size = min(cfg.workers, remaining - target_success)
             target_job = {**job, "ref": target}
             if bot_config.get("mail_provider") == "test-stand" or "/test-stand/" in target_url:
@@ -459,10 +463,14 @@ async def run_job(job: Dict[str, Any], cfg: RunnerConfig, log: LogFn, should_can
                     result.errors.append(str(outcome))
                     result.artifacts.extend(getattr(outcome, "artifacts", []))
             if batch_success == 0:
-                log("target", f"Ссылка пропущена после неуспешной партии: {target_url}", level="error", metadata={"targetId": target_id, "targetUrl": target_url})
-                break
-        result.target_results.append({"id": target_id, "successCount": target_success, "failedCount": target_failed})
+                failed_batches += 1
+                level = "error" if failed_batches >= retry_budget else "warn"
+                log("target", f"Неуспешная партия {failed_batches}/{retry_budget}: {target_label or target_url}", level=level, metadata={"targetId": target_id, "targetUrl": target_url, "targetLabel": target_label})
+            else:
+                failed_batches = 0
+        result.target_results.append({"id": target_id, "successCount": target_success, "failedCount": target_failed, "completed": target_success >= remaining})
 
-    result.status = TERMINAL_CANCELLED if cancelled else TERMINAL_SUCCESS if result.success_count > 0 and result.failed_count == 0 else TERMINAL_FAILED
+    completed_targets = sum(1 for target in result.target_results if target.get("completed"))
+    result.status = TERMINAL_CANCELLED if cancelled else TERMINAL_SUCCESS if completed_targets == len(result.target_results) and completed_targets > 0 else TERMINAL_PARTIAL if completed_targets > 0 else TERMINAL_FAILED
     log("finish", f"Итог: {result.status}; успех={result.success_count}; ошибок={result.failed_count}", level="success" if result.status == TERMINAL_SUCCESS else "warn" if result.status == TERMINAL_CANCELLED else "error")
     return result
