@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto"
 
 import { db } from "@/lib/db"
-import { botRefs, bots, notificationDeliveries, notifications, runs, user, workspaces } from "@/lib/db/schema"
+import { botRefs, bots, notificationDeliveries, notifications, runAttempts, runs, user, workspaces } from "@/lib/db/schema"
+import { isLeaseError, requireActiveLease } from "@/lib/run-leases"
 import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
 import { and, eq, sql } from "drizzle-orm"
 
@@ -28,13 +29,8 @@ export async function POST(
   if (!agent) return unauthorized()
 
   const { id: runId } = await params
-  const [run] = await db.select().from(runs).where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId))).limit(1)
-  if (!run) {
-    return Response.json({ error: "Прогон не найден" }, { status: 404 })
-  }
-  if (run.agentId !== agent.id) {
-    return Response.json({ error: "Прогон принадлежит другому агенту" }, { status: 403 })
-  }
+  const run = await requireActiveLease(req, runId, agent)
+  if (isLeaseError(run)) return run
   if (run.status !== "running") {
     return Response.json({ error: "Прогон уже завершён" }, { status: 409 })
   }
@@ -57,10 +53,18 @@ export async function POST(
       successCount,
       failedCount,
       durationMs: body.durationMs ?? 0,
-      error: body.error ?? null,
+      error: body.error?.slice(0, 2000) ?? null,
+      failureKind: status === "failed" ? "business" : null,
+      failureCode: status === "failed" ? "SCENARIO_FAILED" : null,
       finishedAt: new Date(),
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      leaseOwnerAgentId: null,
+      leaseTokenHash: null,
+      leaseExpiresAt: null,
     })
-    .where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId)))
+    .where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId), eq(runs.leaseTokenHash, run.leaseTokenHash!)))
+
+  await db.update(runAttempts).set({ finishedAt: new Date(), outcome: status, failureKind: status === "failed" ? "business" : null, failureCode: status === "failed" ? "SCENARIO_FAILED" : null }).where(and(eq(runAttempts.runId, runId), eq(runAttempts.attempt, run.attempt), eq(runAttempts.workspaceId, agent.workspaceId)))
 
   // Обновляем счётчики реф-ссылки и исчерпываем её при достижении лимита.
   if (body.refId != null && (successCount > 0 || failedCount > 0)) {

@@ -14,18 +14,18 @@ export async function POST(req: Request) {
   if (!agent) return unauthorized()
 
   let os: string | null = null
+  let protocolVersion = agent.protocolVersion
+  let capabilities: string[] = []
   try {
-    const body = (await req.json()) as { os?: unknown }
-    if (typeof body?.os === "string" && body.os.trim()) {
-      os = body.os.trim().slice(0, 120)
-    }
+    const body = (await req.json()) as { os?: unknown; protocolVersion?: unknown; capabilities?: unknown }
+    if (typeof body?.os === "string" && body.os.trim()) os = body.os.trim().slice(0, 120)
+    if (Number.isInteger(body.protocolVersion)) protocolVersion = Math.max(1, Math.min(100, Number(body.protocolVersion)))
+    if (Array.isArray(body.capabilities)) capabilities = body.capabilities.filter((item): item is string => typeof item === "string").slice(0, 30)
   } catch {
     // тело необязательно
   }
 
-  if (os) {
-    await db.update(agents).set({ os }).where(and(eq(agents.id, agent.id), eq(agents.workspaceId, agent.workspaceId)))
-  }
+  await db.update(agents).set({ ...(os ? { os } : {}), protocolVersion, capabilities, status: "online" }).where(and(eq(agents.id, agent.id), eq(agents.workspaceId, agent.workspaceId)))
 
   return Response.json({ ok: true, agentId: agent.id })
 }

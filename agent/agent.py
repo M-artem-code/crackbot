@@ -83,21 +83,38 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
     run_id = job.get("runId")
     ref = job.get("ref") or {}
     ref_id = ref.get("id")
-    if not run_id:
+    lease_token = str(job.get("leaseToken") or "")
+    if not run_id or not lease_token:
         console("job", "Задание без runId — пропускаю", level="error")
         return
 
     console("job", f"Получено задание run={run_id}", level="success")
-    buffer = StepBuffer(client, run_id)
+    buffer = StepBuffer(client, run_id, lease_token)
     log = make_logger(buffer)
     started = time.monotonic()
+    lease_stop = asyncio.Event()
+
+    async def lease_heartbeat() -> None:
+        while not lease_stop.is_set():
+            try:
+                state = await asyncio.to_thread(client.run_heartbeat, run_id, lease_token)
+                if state.get("cancelRequested"):
+                    return
+            except Exception as exc:  # noqa: BLE001
+                console("run-heartbeat", f"Не удалось продлить lease: {exc}", level="warn")
+            try:
+                await asyncio.wait_for(lease_stop.wait(), timeout=20)
+            except asyncio.TimeoutError:
+                pass
+
+    lease_task = asyncio.create_task(lease_heartbeat())
 
     try:
         runner_cfg = RunnerConfig.from_job(job, default_headless=cfg.headless, default_proxy=cfg.proxy)
 
         async def should_cancel() -> bool:
             try:
-                state = await asyncio.to_thread(client.get_run_state, run_id)
+                state = await asyncio.to_thread(client.get_run_state, run_id, lease_token)
                 return bool(state.get("cancelRequested")) or state.get("status") == "cancelled"
             except Exception:  # noqa: BLE001
                 return False
@@ -116,6 +133,7 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
                     content_type=artifact.content_type,
                     worker=artifact.worker,
                     step_id=artifact.step_id,
+                    lease_token=lease_token,
                 )
                 uploaded += 1
             except Exception as exc:  # noqa: BLE001
@@ -139,6 +157,7 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
             duration_ms=duration_ms,
             error="; ".join(result.errors[:3]) if result.errors else None,
             ref_id=ref_id,
+            lease_token=lease_token,
         )
         console("complete", f"run={run_id} → {status} (успех={result.success_count}, провал={result.failed_count})",
                 level="success" if status == "success" else "error")
@@ -155,9 +174,17 @@ async def process_job(client: CrackbotClient, cfg: AgentConfig, job: Dict[str, A
                 duration_ms=duration_ms,
                 error=str(exc),
                 ref_id=ref_id,
+                lease_token=lease_token,
             )
         except Exception as inner:  # noqa: BLE001
             console("complete", f"Не удалось отправить итог: {inner}", level="error")
+    finally:
+        lease_stop.set()
+        lease_task.cancel()
+        try:
+            await lease_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
 
 
 async def main_loop(cfg: AgentConfig, run_once: bool = False) -> None:

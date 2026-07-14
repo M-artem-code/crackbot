@@ -11,6 +11,7 @@ import {
   LogOutIcon,
   ServerIcon,
   SparklesIcon,
+  ListChecksIcon,
   TerminalIcon,
 } from 'lucide-react'
 
@@ -31,6 +32,7 @@ import {
 const navItems = [
   { title: 'Дашборд', href: '/', icon: LayoutDashboardIcon },
   { title: 'Мои боты', href: '/bots', icon: BotIcon },
+  { title: 'Прогоны', href: '/runs', icon: ListChecksIcon },
   { title: 'Агенты', href: '/agents', icon: ServerIcon },
   { title: 'Расписания', href: '/schedules', icon: CalendarClockIcon },
   { title: 'Уведомления', href: '/notifications', icon: BellIcon },
@@ -38,7 +40,7 @@ const navItems = [
   { title: 'AI-ассистент', href: '/assistant', icon: SparklesIcon },
 ]
 
-export function AppSidebar({ user, workspaceName }: { user: { name: string; email: string }; workspaceName: string }) {
+export function AppSidebar({ user, workspaceName, unreadNotifications = 0 }: { user: { name: string; email: string }; workspaceName: string; unreadNotifications?: number }) {
   const pathname = usePathname()
 
   async function signOut() {
@@ -79,6 +81,7 @@ export function AppSidebar({ user, workspaceName }: { user: { name: string; emai
                     >
                       <item.icon />
                       <span>{item.title}</span>
+                      {item.href === '/notifications' && unreadNotifications > 0 ? <span className="ml-auto flex min-w-5 items-center justify-center rounded-full bg-primary px-1.5 font-mono text-[10px] text-primary-foreground">{unreadNotifications > 99 ? '99+' : unreadNotifications}</span> : null}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )

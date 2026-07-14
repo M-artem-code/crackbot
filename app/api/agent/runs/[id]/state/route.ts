@@ -1,8 +1,5 @@
-import { and, eq } from "drizzle-orm"
-
 import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
-import { db } from "@/lib/db"
-import { runs } from "@/lib/db/schema"
+import { isLeaseError, requireActiveLease } from "@/lib/run-leases"
 
 export const dynamic = "force-dynamic"
 
@@ -14,15 +11,8 @@ export async function GET(
   if (!agent) return unauthorized()
 
   const { id } = await params
-  const [run] = await db
-    .select({ status: runs.status, cancelRequestedAt: runs.cancelRequestedAt })
-    .from(runs)
-    .where(and(eq(runs.id, id), eq(runs.agentId, agent.id), eq(runs.workspaceId, agent.workspaceId)))
-    .limit(1)
-
-  if (!run) {
-    return Response.json({ error: "Прогон не найден или принадлежит другому агенту" }, { status: 404 })
-  }
+  const run = await requireActiveLease(req, id, agent)
+  if (isLeaseError(run)) return run
 
   return Response.json({
     status: run.status,

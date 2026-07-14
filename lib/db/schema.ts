@@ -131,6 +131,20 @@ export const runs = pgTable("runs", {
   scheduleFiringId: text("schedule_firing_id"),
   source: text("source").notNull().default("manual"),
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+  attempt: integer("attempt").notNull().default(0),
+  maxInfraAttempts: integer("max_infra_attempts").notNull().default(3),
+  leaseOwnerAgentId: text("lease_owner_agent_id"),
+  leaseTokenHash: text("lease_token_hash"),
+  leasedAt: timestamp("leased_at", { withTimezone: true }),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  availableAt: timestamp("available_at", { withTimezone: true }).notNull().defaultNow(),
+  failureKind: text("failure_kind"),
+  failureCode: text("failure_code"),
+  recoveredCount: integer("recovered_count").notNull().default(0),
+  retryOfRunId: text("retry_of_run_id"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  retentionHold: boolean("retention_hold").notNull().default(false),
   scenarioSnapshot: jsonb("scenario_snapshot").notNull().default({
     version: 1,
     name: "Untitled scenario",
@@ -139,6 +153,24 @@ export const runs = pgTable("runs", {
   cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+})
+
+export const runAttempts = pgTable("run_attempts", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  runId: text("run_id").notNull(),
+  agentId: text("agent_id").notNull(),
+  attempt: integer("attempt").notNull(),
+  leaseTokenHash: text("lease_token_hash").notNull(),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+  outcome: text("outcome"),
+  failureKind: text("failure_kind"),
+  failureCode: text("failure_code"),
+  recoveryReason: text("recovery_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -153,6 +185,8 @@ export const logSteps = pgTable("log_steps", {
   message: text("message").notNull().default(""),
   durationMs: integer("duration_ms").notNull().default(0),
   attempt: integer("attempt").notNull().default(1),
+  runAttempt: integer("run_attempt").notNull().default(1),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   metadata: jsonb("metadata").notNull().default({}),
 })
 
@@ -169,6 +203,10 @@ export const runArtifacts = pgTable("run_artifacts", {
   byteSize: integer("byte_size").notNull().default(0),
   redacted: boolean("redacted").notNull().default(true),
   metadata: jsonb("metadata").notNull().default({}),
+  runAttempt: integer("run_attempt").notNull().default(1),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  retentionHold: boolean("retention_hold").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
@@ -248,6 +286,8 @@ export const agents = pgTable("agents", {
   keyPrefix: text("key_prefix"),
   keyCreatedAt: timestamp("key_created_at", { withTimezone: true }),
   os: text("os").notNull().default(""),
+  protocolVersion: integer("protocol_version").notNull().default(1),
+  capabilities: jsonb("capabilities").notNull().default([]),
   status: text("status").notNull().default("offline"),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -260,6 +300,7 @@ export type Bot = typeof bots.$inferSelect
 export type BotRef = typeof botRefs.$inferSelect
 export type ScenarioVersion = typeof scenarioVersions.$inferSelect
 export type Run = typeof runs.$inferSelect
+export type RunAttempt = typeof runAttempts.$inferSelect
 export type LogStep = typeof logSteps.$inferSelect
 export type RunArtifact = typeof runArtifacts.$inferSelect
 export type Agent = typeof agents.$inferSelect

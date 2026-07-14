@@ -1,7 +1,7 @@
 import { db } from "@/lib/db"
-import { logSteps, runs } from "@/lib/db/schema"
+import { logSteps } from "@/lib/db/schema"
 import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
-import { and, eq } from "drizzle-orm"
+import { isLeaseError, requireActiveLease } from "@/lib/run-leases"
 
 export const dynamic = "force-dynamic"
 
@@ -28,13 +28,8 @@ export async function POST(
 
   const { id: runId } = await params
 
-  const [run] = await db.select().from(runs).where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId))).limit(1)
-  if (!run) {
-    return Response.json({ error: "Прогон не найден" }, { status: 404 })
-  }
-  if (run.agentId !== agent.id) {
-    return Response.json({ error: "Прогон принадлежит другому агенту" }, { status: 403 })
-  }
+  const run = await requireActiveLease(req, runId, agent)
+  if (isLeaseError(run)) return run
   if (run.status !== "running") {
     return Response.json({ error: "Терминальный прогон нельзя изменять" }, { status: 409 })
   }
@@ -54,6 +49,8 @@ export async function POST(
     .map((s) => ({
       workspaceId: agent.workspaceId,
       runId,
+      runAttempt: run.attempt,
+      expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       worker: Math.max(0, Math.min(100, Math.trunc(Number(s.worker) || 0))),
       level: allowedLevels.has(s.level ?? "") ? s.level! : "info",
       step: String(s.step ?? "").slice(0, 120),

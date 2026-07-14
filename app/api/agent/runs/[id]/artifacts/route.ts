@@ -1,9 +1,8 @@
 import { put } from '@vercel/blob'
-import { and, eq } from 'drizzle-orm'
-
 import { authenticateAgent, unauthorized } from '@/lib/agent-auth'
 import { db } from '@/lib/db'
-import { runArtifacts, runs } from '@/lib/db/schema'
+import { runArtifacts } from '@/lib/db/schema'
+import { isLeaseError, requireActiveLease } from '@/lib/run-leases'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,11 +25,8 @@ export async function POST(
   if (!agent) return unauthorized()
 
   const { id: runId } = await params
-  const [run] = await db.select().from(runs).where(and(eq(runs.id, runId), eq(runs.workspaceId, agent.workspaceId))).limit(1)
-  if (!run) return Response.json({ error: 'Прогон не найден' }, { status: 404 })
-  if (run.agentId !== agent.id) {
-    return Response.json({ error: 'Прогон принадлежит другому агенту' }, { status: 403 })
-  }
+  const run = await requireActiveLease(req, runId, agent)
+  if (isLeaseError(run)) return run
 
   const form = await req.formData()
   const file = form.get('file')
@@ -72,6 +68,8 @@ export async function POST(
     byteSize: file.size,
     redacted: true,
     metadata: {},
+    runAttempt: run.attempt,
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
   })
 
   return Response.json({ id: artifactId, kind: requestedKind })

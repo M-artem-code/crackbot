@@ -1,89 +1,66 @@
-import { db } from "@/lib/db"
-import { botRefs, bots, runs, templates } from "@/lib/db/schema"
-import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
-import { and, asc, eq, sql } from "drizzle-orm"
+import { randomUUID } from 'node:crypto'
 
-export const dynamic = "force-dynamic"
+import { and, asc, eq, sql } from 'drizzle-orm'
 
-/**
- * Агент опрашивает этот эндпоинт: "есть ли для меня задание?"
- * Атомарно захватывает один run в статусе 'queued', переводит в 'running'
- * и возвращает полный пакет для запуска: шаблон, конфиг бота и активный реф.
- */
+import { authenticateAgent, unauthorized } from '@/lib/agent-auth'
+import { db } from '@/lib/db'
+import { botRefs, bots, runs, templates } from '@/lib/db/schema'
+import { AGENT_PROTOCOL_VERSION, isAgentCompatible, issueLeaseToken, LEASE_TTL_SECONDS } from '@/lib/run-leases'
+
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: Request) {
   const agent = await authenticateAgent(req)
   if (!agent) return unauthorized()
+  if (!isAgentCompatible(agent)) {
+    return Response.json({ error: 'Обновите агент для поддержки lease protocol', code: 'UPGRADE_REQUIRED', requiredProtocol: AGENT_PROTOCOL_VERSION }, { status: 426 })
+  }
 
-  // Атомарный захват одного queued-прогона именно этим агентом.
+  const lease = issueLeaseToken()
+  const attemptId = `att_${randomUUID().replaceAll('-', '')}`
   const claimed = await db.execute(sql`
-    UPDATE runs
-    SET status = 'running',
-        agent_id = ${agent.id},
-        started_at = now()
-    WHERE id = (
+    WITH candidate AS (
       SELECT id FROM runs
       WHERE status = 'queued'
         AND workspace_id = ${agent.workspaceId}
-      ORDER BY created_at ASC
+        AND available_at <= now()
+      ORDER BY available_at ASC, created_at ASC
       LIMIT 1
       FOR UPDATE SKIP LOCKED
+    ), updated AS (
+      UPDATE runs
+      SET status = 'running', agent_id = ${agent.id}, lease_owner_agent_id = ${agent.id},
+          lease_token_hash = ${lease.hash}, leased_at = now(), last_heartbeat_at = now(),
+          lease_expires_at = now() + (${LEASE_TTL_SECONDS} * interval '1 second'),
+          started_at = COALESCE(started_at, now()), attempt = attempt + 1
+      WHERE id = (SELECT id FROM candidate)
+      RETURNING id, bot_id, scenario_snapshot, attempt, workspace_id
     )
-    RETURNING id, bot_id, scenario_snapshot
+    INSERT INTO run_attempts (id, workspace_id, run_id, agent_id, attempt, lease_token_hash, claimed_at, started_at, last_heartbeat_at)
+    SELECT ${attemptId}, workspace_id, id, ${agent.id}, attempt, ${lease.hash}, now(), now(), now() FROM updated
+    RETURNING run_id, attempt
   `)
 
-  const row = (claimed.rows?.[0] ?? null) as {
-    id: string
-    bot_id: string
-    scenario_snapshot: unknown
-  } | null
-  if (!row) {
-    return Response.json({ job: null })
-  }
+  const attemptRow = (claimed.rows?.[0] ?? null) as { run_id: string; attempt: number } | null
+  if (!attemptRow) return Response.json({ job: null })
 
-  const [botRow] = await db.select().from(bots).where(and(eq(bots.id, row.bot_id), eq(bots.workspaceId, agent.workspaceId))).limit(1)
-  const [tplRow] = botRow
-    ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1)
-    : []
-
-  // Берём активный реф с наименьшим прогрессом (round-robin по нагрузке).
-  const [refRow] = await db
-    .select()
-    .from(botRefs)
-    .where(and(eq(botRefs.botId, row.bot_id), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.status, "active")))
-    .orderBy(asc(botRefs.successCount))
-    .limit(1)
+  const [run] = await db.select().from(runs).where(and(eq(runs.id, attemptRow.run_id), eq(runs.workspaceId, agent.workspaceId))).limit(1)
+  if (!run) return Response.json({ job: null })
+  const [botRow] = await db.select().from(bots).where(and(eq(bots.id, run.botId), eq(bots.workspaceId, agent.workspaceId))).limit(1)
+  const [tplRow] = botRow ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1) : []
+  const [refRow] = await db.select().from(botRefs).where(and(eq(botRefs.botId, run.botId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.status, 'active'))).orderBy(asc(botRefs.successCount)).limit(1)
 
   return Response.json({
     job: {
-      runId: row.id,
-      scenario: row.scenario_snapshot,
-      bot: botRow
-        ? {
-            id: botRow.id,
-            name: botRow.name,
-            targetUrl: botRow.targetUrl,
-            workers: botRow.workers,
-            config: botRow.config,
-          }
-        : null,
-      template: tplRow
-        ? {
-            slug: tplRow.slug,
-            engine: tplRow.engine,
-            flowType: tplRow.flowType,
-            fields: tplRow.fields,
-            defaultConfig: tplRow.defaultConfig,
-            scenarioSteps: tplRow.scenarioSteps,
-          }
-        : null,
-      ref: refRow
-        ? {
-            id: refRow.id,
-            url: refRow.url,
-            successLimit: refRow.successLimit,
-            successCount: refRow.successCount,
-          }
-        : null,
+      runId: run.id,
+      attempt: attemptRow.attempt,
+      leaseToken: lease.token,
+      leaseExpiresInSeconds: LEASE_TTL_SECONDS,
+      protocolVersion: AGENT_PROTOCOL_VERSION,
+      scenario: run.scenarioSnapshot,
+      bot: botRow ? { id: botRow.id, name: botRow.name, targetUrl: botRow.targetUrl, workers: botRow.workers, config: botRow.config } : null,
+      template: tplRow ? { slug: tplRow.slug, engine: tplRow.engine, flowType: tplRow.flowType, fields: tplRow.fields, defaultConfig: tplRow.defaultConfig, scenarioSteps: tplRow.scenarioSteps } : null,
+      ref: refRow ? { id: refRow.id, url: refRow.url, successLimit: refRow.successLimit, successCount: refRow.successCount } : null,
     },
   })
 }
