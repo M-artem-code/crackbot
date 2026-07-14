@@ -26,6 +26,7 @@ async def run_python_sandbox(job: Dict[str, Any], log: Callable[..., None]) -> S
     python_files = scenario.get("python") or job.get("python") or {}
     code = str(python_files.get("code") or "")
     requirements = str(python_files.get("requirements") or "")
+    assets = python_files.get("assets") or {}
     targets = job.get("targets") or []
     if not code.strip():
         return SandboxResult(status="failed", failed_count=1, errors=["В Python snapshot отсутствует bot.py"])
@@ -43,10 +44,18 @@ async def run_python_sandbox(job: Dict[str, Any], log: Callable[..., None]) -> S
     artifacts.mkdir(mode=0o700)
     (root / "bot.py").write_text(code, encoding="utf-8")
     (root / "requirements.txt").write_text(requirements, encoding="utf-8")
+    for name, content in assets.items():
+        safe_name = Path(str(name)).name
+        if safe_name != name or safe_name in {"bot.py", "requirements.txt", "input.json"}:
+            continue
+        if not isinstance(content, str) or len(content.encode("utf-8")) > 512 * 1024:
+            continue
+        (root / safe_name).write_text(content, encoding="utf-8")
     payload = {"runId": job.get("runId"), "bot": job.get("bot"), "target": target, "config": (job.get("bot") or {}).get("config") or {}}
     (root / "input.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
     wrapper = "set -eu; python -m pip install --disable-pip-version-check --no-input --requirement /workspace/requirements.txt; CRACKBOT_INPUT=/workspace/input.json python /workspace/bot.py"
-    command = [runtime, "run", "--rm", "--init", "--network", "bridge", "--cpus", "2", "--memory", "2g", "--pids-limit", "256", "--read-only", "--tmpfs", "/tmp:rw,noexec,nosuid,size=256m", "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--user", "1000:1000", "-v", f"{root}:/workspace:rw", "-w", "/workspace", "mcr.microsoft.com/playwright/python:v1.55.0-noble", "bash", "-lc", wrapper]
+    image = os.environ.get("CRACKBOT_PYTHON_IMAGE", "crackbot/nodriver-agent:latest")
+    command = [runtime, "run", "--rm", "--init", "--network", "bridge", "--cpus", "2", "--memory", "2g", "--pids-limit", "256", "--shm-size", "512m", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=512m", "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--user", "1000:1000", "-v", f"{root}:/workspace:rw", "-w", "/workspace", image, "bash", "-lc", wrapper]
     log("python-sandbox", f"Запуск bot.py для {target.get('url')}", metadata={"targetId": target.get("id")})
     try:
         process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env={"PATH": os.environ.get("PATH", "")})

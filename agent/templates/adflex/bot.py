@@ -476,6 +476,7 @@ async def run_once(ref_url: str, proxy: str | None = None, logfile: str | None =
         browser_args = [
             f"--user-data-dir={profile_dir}",
             "--no-first-run", "--no-default-browser-check",
+            "--no-sandbox", "--disable-dev-shm-usage",
             f"--window-size={pw},{ph}",
             "--window-position=0,0",
             "--disable-background-timer-throttling",
@@ -652,17 +653,54 @@ async def main():
     await asyncio.sleep(2)
 
 
-if __name__ == "__main__":
-    free = asyncio.run(fetch_working_free_proxies())
-    if free:
-        _free_pool = free
-        _proxy_pool = _base_pool + _free_pool
-        log(f"total pool: {len(_proxy_pool)} proxies ({len(_free_pool)} free)")
+async def crackbot_job_main():
+    """Run one managed Crackbot job while preserving the original nodriver/CDP flow."""
+    input_path = os.environ.get("CRACKBOT_INPUT")
+    if not input_path:
+        await main()
+        return
 
-    while True:
-        try:
-            asyncio.run(main())
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            time.sleep(3)
+    payload = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    target = payload.get("target") or {}
+    config = payload.get("config") or {}
+    ref_url = str(target.get("url") or "").strip()
+    if not ref_url:
+        print(json.dumps({"success": False, "message": "target.url is required"}, ensure_ascii=False))
+        return
+
+    # Proxy credentials are injected only at runtime and never stored in bot.py.
+    proxy = str(config.get("runtimeProxy") or "").strip() or None
+    allow_direct = bool(config.get("allowDirectFallback", False))
+    if not proxy:
+        free_proxies = await fetch_working_free_proxies()
+        proxy = free_proxies[0] if free_proxies else None
+    if not proxy and not allow_direct:
+        print(json.dumps({"success": False, "message": "No healthy user or free proxy; direct fallback is disabled"}, ensure_ascii=False))
+        return
+
+    result = await run_once(ref_url, proxy=proxy)
+    print(json.dumps({
+        "success": result == "success",
+        "message": result,
+        "status": result,
+        "metrics": {"successCount": 1 if result == "success" else 0, "failedCount": 0 if result == "success" else 1},
+    }, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    if os.environ.get("CRACKBOT_INPUT"):
+        asyncio.run(crackbot_job_main())
+    else:
+        free = asyncio.run(fetch_working_free_proxies())
+        if free:
+            _free_pool = free
+            _proxy_pool = _base_pool + _free_pool
+            log(f"total pool: {len(_proxy_pool)} proxies ({len(_free_pool)} free)")
+
+        while True:
+            try:
+                asyncio.run(main())
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                time.sleep(3)

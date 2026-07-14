@@ -374,7 +374,7 @@ async def run_one(page, mail, ref_url: str, label: str) -> dict:
     return {"status": "failed", "email": email_used, "reason": "accept modal never appeared", "duration": time.time() - start}
 
 
-async def worker(worker_id: int, ref_url: str, state: DashboardState, batch_id: float | None = None):
+async def worker(worker_id: int, ref_url: str, state: DashboardState, batch_id: float | None = None, proxy: str | None = None):
     label = f"[W{worker_id}]"
     browser = None
     profile_dir = None
@@ -385,15 +385,20 @@ async def worker(worker_id: int, ref_url: str, state: DashboardState, batch_id: 
 
     try:
         profile_dir = tempfile.mkdtemp(suffix=f"_w{worker_id}")
-        browser = await uc.start(browser_args=[
+        browser_args = [
             f"--user-data-dir={profile_dir}",
             f"--remote-debugging-port={9200 + worker_id}",
             "--no-first-run",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
             "--disable-background-timer-throttling",
             "--disable-backgrounding-occluded-windows",
             "--disable-renderer-backgrounding",
             "--blink-settings=imagesEnabled=false",
-        ])
+        ]
+        if proxy:
+            browser_args.append(f"--proxy-server={proxy}")
+        browser = await uc.start(browser_args=browser_args)
         page = await browser.get("about:blank", new_tab=False)
 
         try:
@@ -649,8 +654,46 @@ async def main():
     input("\nНажми Enter для выхода...")
 
 
+async def crackbot_job_main():
+    """Run one managed Crackbot job while preserving the original nodriver/CDP flow."""
+    input_path = os.environ.get("CRACKBOT_INPUT")
+    if not input_path:
+        await main()
+        return
+
+    payload = json.loads(Path(input_path).read_text(encoding="utf-8"))
+    target = payload.get("target") or {}
+    config = payload.get("config") or {}
+    ref_url = str(target.get("url") or "").strip()
+    if not ref_url:
+        print(json.dumps({"success": False, "message": "target.url is required"}, ensure_ascii=False))
+        return
+
+    pool.reset()
+    pool.add_links([ref_url])
+    state = DashboardState()
+    proxy = str(config.get("runtimeProxy") or "").strip() or None
+    result = await worker(1, ref_url, state, batch_id=time.time(), proxy=proxy)
+    safe_result = {
+        "success": result.get("status") == "success",
+        "message": result.get("reason") or result.get("status", "failed"),
+        "status": result.get("status", "failed"),
+        "duration": result.get("duration", 0),
+        "metrics": {
+            "successCount": state.total_success,
+            "failedCount": state.total_failed,
+            "completedRefs": 1 if result.get("status") == "success" else 0,
+            "totalRefs": 1,
+        },
+    }
+    print(json.dumps(safe_result, ensure_ascii=False))
+
+
 if __name__ == "__main__":
-    while True:
-        asyncio.run(main())
-        time.sleep(1)
+    if os.environ.get("CRACKBOT_INPUT"):
+        asyncio.run(crackbot_job_main())
+    else:
+        while True:
+            asyncio.run(main())
+            time.sleep(1)
 
