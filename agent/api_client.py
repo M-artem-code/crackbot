@@ -95,13 +95,13 @@ class CrackbotClient:
     def upload_artifact(
         self,
         run_id: str,
+        lease_token: str,
         *,
         path: str,
         kind: str,
         content_type: str,
         worker: int = 0,
         step_id: Optional[str] = None,
-        lease_token: str,
     ) -> Dict[str, Any]:
         """Загружает уже отредактированный артефакт в приватное хранилище."""
         headers = {
@@ -128,6 +128,7 @@ class CrackbotClient:
     def complete_run(
         self,
         run_id: str,
+        lease_token: str,
         *,
         status: str,
         success_count: int = 0,
@@ -135,7 +136,6 @@ class CrackbotClient:
         duration_ms: int = 0,
         error: Optional[str] = None,
         ref_id: Optional[int] = None,
-        lease_token: str,
     ) -> Dict[str, Any]:
         """Финализирует прогон: статус, счётчики, длительность и refId."""
         payload: Dict[str, Any] = {

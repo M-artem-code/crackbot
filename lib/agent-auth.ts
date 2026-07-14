@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm'
 import { db } from '@/lib/db'
 import { agents } from '@/lib/db/schema'
 
-export interface AuthedAgent { id: string; name: string; workspaceId: string }
+export interface AuthedAgent { id: string; name: string; workspaceId: string; protocolVersion: number; capabilities: unknown }
 function hash(value: string) { return createHash('sha256').update(value).digest() }
 
 export async function authenticateAgent(req: Request): Promise<AuthedAgent | null> {
@@ -19,7 +19,7 @@ export async function authenticateAgent(req: Request): Promise<AuthedAgent | nul
   const stored = Buffer.from(agent.apiKeyHash, 'hex')
   if (stored.length !== digest.length || !timingSafeEqual(stored, digest)) return null
   await db.update(agents).set({ lastSeenAt: new Date() }).where(eq(agents.id, agent.id))
-  return { id: agent.id, name: agent.name, workspaceId: agent.workspaceId }
+  return { id: agent.id, name: agent.name, workspaceId: agent.workspaceId, protocolVersion: agent.protocolVersion, capabilities: agent.capabilities }
 }
 
 export function unauthorized() { return Response.json({ error: 'Неверный или отсутствующий API-ключ' }, { status: 401 }) }

@@ -3,7 +3,9 @@ import { createHash, randomBytes } from 'node:crypto'
 import { and, eq } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
-import { runs, type Agent, type Run } from '@/lib/db/schema'
+import { runs, type Run } from '@/lib/db/schema'
+
+type LeaseAgent = { id: string; workspaceId: string; protocolVersion: number }
 
 export const AGENT_PROTOCOL_VERSION = 2
 export const LEASE_TTL_SECONDS = 75
@@ -21,11 +23,11 @@ export function leaseTokenFromRequest(request: Request) {
   return request.headers.get('x-run-lease')?.trim() ?? ''
 }
 
-export function isAgentCompatible(agent: Agent) {
+export function isAgentCompatible(agent: LeaseAgent) {
   return agent.protocolVersion >= AGENT_PROTOCOL_VERSION
 }
 
-export async function requireActiveLease(request: Request, runId: string, agent: Agent): Promise<Run | Response> {
+export async function requireActiveLease(request: Request, runId: string, agent: LeaseAgent): Promise<Run | Response> {
   const token = leaseTokenFromRequest(request)
   if (!token) return Response.json({ error: 'Требуется run lease' }, { status: 401 })
 
