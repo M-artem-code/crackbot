@@ -14,7 +14,7 @@ import { Spinner } from '@/components/ui/spinner'
 export function AuthForm({ mode }: { mode: 'sign-in' | 'sign-up' }) {
   const router = useRouter(); const signUp = mode === 'sign-up'
   const [name, setName] = useState(''); const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [error, setError] = useState<string | null>(null); const [loading, setLoading] = useState(false)
-  async function submit(event: React.FormEvent) { event.preventDefault(); setError(null); setLoading(true); const result = signUp ? await authClient.signUp.email({ name, email, password }) : await authClient.signIn.email({ email, password }); setLoading(false); if (result.error) { setError(result.error.message ?? 'Не удалось продолжить'); return } router.push('/'); router.refresh() }
+  async function submit(event: React.FormEvent) { event.preventDefault(); setError(null); setLoading(true); const result = signUp ? await authClient.signUp.email({ name, email, password }) : await authClient.signIn.email({ email, password, rememberMe: true }); setLoading(false); if (result.error) { setError(result.error.message ?? 'Не удалось продолжить'); return } router.push('/'); router.refresh() }
   return <main className="flex min-h-svh items-center justify-center bg-background p-4">
     <div className="flex w-full max-w-4xl overflow-hidden rounded-2xl bg-card shadow-2xl shadow-background/40 ring-1 ring-foreground/5 md:min-h-[540px]">
       <section className="hidden flex-1 flex-col justify-between border-r bg-sidebar p-8 md:flex">

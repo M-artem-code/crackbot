@@ -27,6 +27,14 @@ export const auth = betterAuth({
   baseURL,
   trustedOrigins,
   emailAndPassword: { enabled: true },
+  session: {
+    expiresIn: 60 * 60 * 24 * 30,
+    updateAge: 60 * 60 * 24,
+    cookieCache: {
+      enabled: true,
+      maxAge: 60 * 5,
+    },
+  },
   advanced:
     process.env.NODE_ENV === 'development'
       ? { defaultCookieAttributes: { sameSite: 'none', secure: true } }
