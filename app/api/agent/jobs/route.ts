@@ -51,9 +51,14 @@ export async function GET(req: Request) {
   const [tplRow] = botRow ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1) : []
   const targetRows = await db.select().from(botRefs).where(and(eq(botRefs.botId, run.botId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.status, 'active'), sql`${botRefs.successCount} < ${botRefs.successLimit}`)).orderBy(asc(botRefs.position), asc(botRefs.id))
   const storedConfig = (botRow?.config && typeof botRow.config === 'object' ? botRow.config : {}) as Record<string, unknown>
-  const { proxySecret, proxy: legacyProxy, ...publicConfig } = storedConfig
+  const { proxySecret, passwordSecret, proxy: legacyProxy, password: legacyPassword, ...publicConfig } = storedConfig
   const runtimeProxy = decryptRuntimeSecret(proxySecret) ?? (typeof legacyProxy === 'string' ? legacyProxy : undefined)
-  const runtimeConfig = runtimeProxy ? { ...publicConfig, runtimeProxy } : publicConfig
+  const runtimePassword = decryptRuntimeSecret(passwordSecret) ?? (typeof legacyPassword === 'string' ? legacyPassword : undefined)
+  const runtimeConfig = {
+    ...publicConfig,
+    ...(runtimeProxy ? { runtimeProxy } : {}),
+    ...(runtimePassword ? { runtimePassword } : {}),
+  }
 
   return Response.json({
     job: {

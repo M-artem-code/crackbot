@@ -65,7 +65,7 @@ export async function getBots(): Promise<Bot[]> {
       scenarioStatus: b.scenarioStatus as "draft" | "published", publishedScenarioVersionId: b.publishedScenarioVersionId,
       scenarioVersions: versionRows.filter((v) => v.botId === b.id).map((v) => ({ id: v.id, version: v.version, snapshot: assertScenarioDefinition(v.snapshot), author: v.author, changeSummary: v.changeSummary, sourceVersionId: v.sourceVersionId, createdAt: iso(v.createdAt) ?? "", isCurrent: v.id === b.publishedScenarioVersionId })),
       pythonWorkspace: (() => { const row = pythonRows.find((item) => item.botId === b.id); return row ? { draftCode: row.draftCode, draftRequirements: row.draftRequirements, publishedCode: row.publishedCode, publishedRequirements: row.publishedRequirements, status: row.status as 'draft' | 'published', lastTestStatus: row.lastTestStatus, lastTestOutput: row.lastTestOutput, lastTestedAt: iso(row.lastTestedAt), versions: pythonVersionRows.filter((v) => v.botId === b.id).map((v) => ({ id: v.id, version: v.version, changeSummary: v.changeSummary, createdAt: iso(v.createdAt) ?? '', isCurrent: v.id === row.publishedVersionId })) } : null })(),
-      config: (() => { const stored = (b.config as Record<string, unknown>) ?? {}; const { proxySecret, proxy, ...safe } = stored; return { ...safe, proxyConfigured: Boolean(proxySecret || proxy) } })(),
+      config: (() => { const stored = (b.config as Record<string, unknown>) ?? {}; const { proxySecret, passwordSecret, proxy, password, ...safe } = stored; return { ...safe, proxyConfigured: Boolean(proxySecret || proxy), passwordConfigured: Boolean(passwordSecret || password) } })(),
     }
   })
 }

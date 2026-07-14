@@ -95,7 +95,7 @@ export async function cancelRun(runId: string) {
 
 export async function updateBotStatus(botId: string, status: 'idle' | 'active' | 'paused' | 'error') { const { workspace } = await requireWorkspace(); await db.update(bots).set({ status, updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath('/bots'); revalidatePath(`/bots/${botId}`) }
 
-export interface UpdateBotSettingsInput { name: string; workers: number; config: { proxy?: string; clearProxy?: boolean; allowDirectFallback?: boolean; headless?: boolean; page_timeout?: number; otp_timeout?: number; action_delay_min?: number; action_delay_max?: number; password?: string } }
+export interface UpdateBotSettingsInput { name: string; workers: number; config: { proxy?: string; clearProxy?: boolean; allowDirectFallback?: boolean; headless?: boolean; page_timeout?: number; otp_timeout?: number; action_delay_min?: number; action_delay_max?: number; password?: string; clearPassword?: boolean } }
 export async function updateBotSettings(botId: string, input: UpdateBotSettingsInput) {
   const { workspace } = await requireWorkspace(); const name = input.name.trim(); if (!name) throw new Error('Имя бота обязательно')
   const [bot] = await db.select().from(bots).where(scopedBot(workspace.id, botId)).limit(1); if (!bot) throw new Error('Бот не найден')
@@ -107,6 +107,11 @@ export async function updateBotSettings(botId: string, input: UpdateBotSettingsI
   else if (input.config.clearProxy) delete config.proxySecret
   else if (!config.proxySecret && legacyProxy) config.proxySecret = encryptRuntimeSecret(legacyProxy)
   delete config.proxy
-  const password = (input.config.password ?? '').trim(); if (password) config.password = password; else delete config.password
+  const password = (input.config.password ?? '').trim()
+  const legacyPassword = typeof config.password === 'string' ? config.password.trim() : ''
+  if (password) config.passwordSecret = encryptRuntimeSecret(password)
+  else if (input.config.clearPassword) delete config.passwordSecret
+  else if (!config.passwordSecret && legacyPassword) config.passwordSecret = encryptRuntimeSecret(legacyPassword)
+  delete config.password
   await db.update(bots).set({ name, workers: Math.min(10, Math.max(1, Math.round(input.workers || 1))), config, updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath('/bots'); revalidatePath(`/bots/${botId}`); revalidatePath('/'); return { ok: true as const }
 }

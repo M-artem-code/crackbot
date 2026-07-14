@@ -457,7 +457,7 @@ async def fetch_working_free_proxies() -> list:
         return []
 
 
-async def run_once(ref_url: str, proxy: str | None = None, logfile: str | None = None) -> str:
+async def run_once(ref_url: str, proxy: str | None = None, logfile: str | None = None, account_password: str | None = None) -> str:
     if logfile:
         set_logfile(logfile)
     start = time.time()
@@ -558,7 +558,8 @@ async def run_once(ref_url: str, proxy: str | None = None, logfile: str | None =
             return "no form"
 
         log(f"email: {email} — filling form...")
-        first_name, last_name, password = generate_profile()
+        first_name, last_name, generated_password = generate_profile()
+        password = account_password or generated_password
         await fill_form(page, first_name, last_name, email, password)
         log(f"filled: {first_name} {last_name}")
 
@@ -678,7 +679,8 @@ async def crackbot_job_main():
         print(json.dumps({"success": False, "message": "No healthy user or free proxy; direct fallback is disabled"}, ensure_ascii=False))
         return
 
-    result = await run_once(ref_url, proxy=proxy)
+    account_password = str(config.get("runtimePassword") or "").strip() or None
+    result = await run_once(ref_url, proxy=proxy, account_password=account_password)
     print(json.dumps({
         "success": result == "success",
         "message": result,

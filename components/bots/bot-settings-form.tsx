@@ -46,7 +46,9 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
   const [proxy, setProxy] = React.useState('')
   const [clearProxy, setClearProxy] = React.useState(false)
   const [allowDirectFallback, setAllowDirectFallback] = React.useState(Boolean(cfg.allowDirectFallback))
-  const [password, setPassword] = React.useState(String(cfg.password ?? ''))
+  const passwordConfigured = Boolean(cfg.passwordConfigured)
+  const [password, setPassword] = React.useState('')
+  const [clearPassword, setClearPassword] = React.useState(false)
   const [headless, setHeadless] = React.useState(
     cfg.headless === undefined ? true : Boolean(cfg.headless),
   )
@@ -80,6 +82,7 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
             clearProxy,
             allowDirectFallback,
             password,
+            clearPassword,
             headless,
             page_timeout: pageTimeout,
             otp_timeout: otpTimeout,
@@ -226,15 +229,20 @@ export function BotSettingsForm({ bot }: { bot: Bot }) {
 
           <Field>
             <FieldLabel htmlFor="password">Пароль для регистраций</FieldLabel>
-            <Input
-              id="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Оставьте пустым для случайного пароля"
-              className="font-mono"
-            />
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                onChange={(e) => { setPassword(e.target.value); setClearPassword(false) }}
+                placeholder={passwordConfigured && !clearPassword ? 'Секрет сохранён — введите только для замены' : 'Оставьте пустым для случайного пароля'}
+                className="font-mono"
+                autoComplete="new-password"
+              />
+              {passwordConfigured && !clearPassword ? <Button type="button" variant="outline" onClick={() => { setPassword(''); setClearPassword(true) }}>Удалить</Button> : null}
+            </div>
             <FieldDescription>
-              Если задан — используется для всех аккаунтов; иначе агент генерирует случайный
+              Секрет шифруется и передаётся только агенту во время задания; без него агент генерирует случайный пароль
             </FieldDescription>
           </Field>
 
