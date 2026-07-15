@@ -96,9 +96,9 @@ export function AgentCard({ agent }: { agent: AgentInfo }) {
                     <MonitorIcon />
                     Установить раннер
                   </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleRotate}>
+                  <DropdownMenuItem onClick={handleRotate} disabled={pending}>
                     <RefreshCwIcon />
-                    Перевыпустить ключ
+                    Переподключить Runner
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleToggleDisabled}>
@@ -139,6 +139,11 @@ export function AgentCard({ agent }: { agent: AgentInfo }) {
               Полный ключ показывается только один раз при создании или перевыпуске.
             </span>
           </div>
+
+          <Button variant="outline" className="w-full" onClick={handleRotate} disabled={pending}>
+            {pending ? <Spinner data-icon="inline-start" /> : <RefreshCwIcon data-icon="inline-start" />}
+            Переподключить Runner
+          </Button>
         </CardContent>
       </Card>
 
@@ -172,10 +177,9 @@ export function AgentCard({ agent }: { agent: AgentInfo }) {
       <ApiKeyDialog
         open={keyDialogOpen}
         onOpenChange={setKeyDialogOpen}
-        agentName={agent.name}
         apiKey={rotatedKey}
-        title="Ключ перевыпущен"
-        description="Старый ключ больше не действует. Обновите конфиг агента новым ключом."
+        title="Переподключите Runner"
+        description="Новый ключ создан. Скачайте готовый конфиг, замените локальный файл и перезапустите Runner."
       />
     </>
   )

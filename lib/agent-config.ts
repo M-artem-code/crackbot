@@ -23,14 +23,13 @@ export function buildAgentConfig(apiKey: string): {
 }
 
 // Скачивает файл agent-config.json с адресом сервера и ключом.
-export function downloadAgentConfig(agentName: string, apiKey: string): void {
+export function downloadAgentConfig(apiKey: string): void {
   const config = buildAgentConfig(apiKey)
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
-  const slug = agentName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'agent'
   const a = document.createElement('a')
   a.href = url
-  a.download = `agent-config-${slug}.json`
+  a.download = 'agent-config.json'
   document.body.appendChild(a)
   a.click()
   a.remove()
