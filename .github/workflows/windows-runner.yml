@@ -3,7 +3,8 @@ name: Windows Runner Beta
 on:
   workflow_dispatch:
   push:
-    tags: ['runner-v*']
+    tags:
+      - 'runner-v*'
 
 permissions:
   contents: write
@@ -11,15 +12,18 @@ permissions:
 jobs:
   build:
     runs-on: windows-2022
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: agent/requirements.txt
       - name: Install pinned build dependencies
-        run: pip install -r agent/requirements.txt pyinstaller==6.14.2
+        run: python -m pip install --requirement agent/requirements.txt pyinstaller==6.14.2
       - name: Unit tests
         working-directory: agent
         run: python -m unittest test_windows_runner.py
@@ -28,30 +32,33 @@ jobs:
         run: pyinstaller --clean --noconfirm BotForgeRunner.spec
       - name: Install Inno Setup
         shell: pwsh
-        run: choco install innosetup --version=6.3.3 -y
+        run: choco install innosetup --version=6.3.3 --yes --no-progress
       - name: Build per-user setup
-        working-directory: agent
         shell: pwsh
         env:
           BOTFORGE_SERVER_URL: ${{ vars.BOTFORGE_SERVER_URL }}
         run: |
           if (-not $env:BOTFORGE_SERVER_URL) { throw 'Repository variable BOTFORGE_SERVER_URL is required' }
-          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DSERVER_URL=$env:BOTFORGE_SERVER_URL" installer.iss
-      - name: Generate checksum
+          & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DAppServerUrl=$env:BOTFORGE_SERVER_URL" installer\BotForgeRunner.iss
+      - name: Generate SHA-256 checksum
         shell: pwsh
-        run: Get-FileHash agent\dist-installer\BotForgeRunner-Setup.exe -Algorithm SHA256 | Select-Object Hash | Out-File agent\dist-installer\BotForgeRunner-Setup.exe.sha256
+        run: |
+          $hash = (Get-FileHash installer\output\BotForgeRunner-Setup.exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  BotForgeRunner-Setup.exe" | Set-Content -NoNewline installer\output\BotForgeRunner-Setup.exe.sha256
       - uses: actions/upload-artifact@v4
         with:
           name: BotForgeRunner-Windows-unsigned-beta
           path: |
-            agent/dist-installer/BotForgeRunner-Setup.exe
-            agent/dist-installer/BotForgeRunner-Setup.exe.sha256
+            installer/output/BotForgeRunner-Setup.exe
+            installer/output/BotForgeRunner-Setup.exe.sha256
           if-no-files-found: error
+          retention-days: 30
       - name: Publish tagged beta
         if: startsWith(github.ref, 'refs/tags/runner-v')
         uses: softprops/action-gh-release@v2
         with:
           prerelease: true
+          generate_release_notes: true
           files: |
-            agent/dist-installer/BotForgeRunner-Setup.exe
-            agent/dist-installer/BotForgeRunner-Setup.exe.sha256
+            installer/output/BotForgeRunner-Setup.exe
+            installer/output/BotForgeRunner-Setup.exe.sha256
