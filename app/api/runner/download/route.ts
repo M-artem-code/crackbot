@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   )).limit(1)
   if (!pairing) return Response.json({ error: 'PAIRING_EXPIRED' }, { status: 410 })
 
-  const defaultInstallerUrl = 'https://github.com/M-artem-code/crackbot/releases/download/runner-v0.1.0-beta.5/BotForgeRunner-Setup.exe'
+  const defaultInstallerUrl = 'https://github.com/M-artem-code/crackbot/releases/download/runner-v0.1.0-beta.6/BotForgeRunner-Setup.exe'
   const installerUrl = process.env.RUNNER_INSTALLER_URL?.startsWith('https://')
     ? process.env.RUNNER_INSTALLER_URL
     : defaultInstallerUrl
