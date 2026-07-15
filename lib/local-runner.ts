@@ -2,6 +2,7 @@ import 'server-only'
 
 import { spawn } from 'node:child_process'
 import { mkdir, writeFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { and, asc, eq, sql } from 'drizzle-orm'
 
@@ -14,7 +15,15 @@ import { decryptRuntimeSecret } from '@/lib/runtime-secrets'
 // (crackbot_job_main, activated via the CRACKBOT_INPUT env var).
 
 const PYTHON_BIN = process.env.PYTHON_BIN || (process.platform === 'win32' ? 'python' : 'python3')
-const RUN_ROOT = join(process.cwd(), '.botforge', 'runs')
+// Work in the OS temp dir — always writable (unlike the app dir on some machines).
+const RUN_ROOT = join(tmpdir(), 'botforge-runs')
+
+// This tool spawns Python + Chrome, which serverless hosts (Vercel) cannot do:
+// their filesystem is read-only and there is no Python/Chrome. Detect and fail clearly.
+const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME)
+const SERVERLESS_MESSAGE =
+  'Запуск ботов работает только локально на твоём компьютере (pnpm dev), где есть Python и Chrome. ' +
+  'На Vercel это невозможно: файловая система только для чтения и нет Python. Открой проект локально и запусти оттуда.'
 
 interface PythonSnapshot {
   executionMode?: string
@@ -131,6 +140,8 @@ async function execute(runId: string) {
   await db.update(runs).set({ status: 'running', startedAt: new Date() }).where(eq(runs.id, runId))
 
   try {
+    if (IS_SERVERLESS) throw new Error(SERVERLESS_MESSAGE)
+
     if (snapshot.executionMode !== 'python' || !snapshot.python?.code) {
       throw new Error('У этого бота нет опубликованного Python-кода. Опубликуй bot.py и запусти снова.')
     }
