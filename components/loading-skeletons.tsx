@@ -117,6 +117,34 @@ export function CreateSkeleton() {
   )
 }
 
+export function AgentsSkeleton() {
+  return (
+    <AppShell>
+      <PageHeader title="Агенты" description="загрузка…" />
+      <main className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-4 w-48" />
+          <Skeleton className="h-8 w-32" />
+        </div>
+        <Skeleton className="h-40 w-full rounded-lg" />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="rounded-lg border bg-card p-4">
+              <div className="flex items-center justify-between">
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-5 w-16" />
+              </div>
+              <Skeleton className="mt-3 h-3 w-32" />
+              <Skeleton className="mt-4 h-14 w-full" />
+              <Skeleton className="mt-3 h-9 w-full" />
+            </div>
+          ))}
+        </div>
+      </main>
+    </AppShell>
+  )
+}
+
 export function AssistantSkeleton() {
   return (
     <AppShell>

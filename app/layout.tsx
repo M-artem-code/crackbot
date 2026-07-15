@@ -1,6 +1,7 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import { cookies } from 'next/headers'
 import './globals.css'
 
 const _geistSans = Geist({ subsets: ['latin'] })
@@ -31,17 +32,22 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'dark',
-  themeColor: '#0d0d10',
+  colorScheme: 'light dark',
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#f5f7fa' },
+    { media: '(prefers-color-scheme: dark)', color: '#10141c' },
+  ],
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  const cookieStore = await cookies()
+  const theme = cookieStore.get('botforge_theme')?.value === 'light' ? 'light' : 'dark'
   return (
-    <html lang="ru" className="dark bg-background">
+    <html lang="ru" className={`${theme === 'dark' ? 'dark ' : ''}bg-background`} suppressHydrationWarning>
       <body className="antialiased font-sans">
         {children}
         {process.env.NODE_ENV === 'production' && <Analytics />}

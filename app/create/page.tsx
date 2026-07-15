@@ -3,6 +3,8 @@ import { PageHeader } from '@/components/page-header'
 import { CreateBotWizard } from '@/components/create/create-bot-wizard'
 import { getTemplates } from '@/lib/queries'
 
+export const dynamic = 'force-dynamic'
+
 export default async function CreatePage() {
   const templates = await getTemplates()
   return (

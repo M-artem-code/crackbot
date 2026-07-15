@@ -1,24 +1,17 @@
 'use client'
 
 import * as React from 'react'
-import {
-  DatabaseIcon,
-  DownloadIcon,
-  ExternalLinkIcon,
-  PlayIcon,
-  PlusIcon,
-} from 'lucide-react'
+import { AlertTriangleIcon, DatabaseIcon, PlayIcon, SquareIcon } from 'lucide-react'
+import useSWR from 'swr'
 
 import { useRouter } from 'next/navigation'
 
-import { enqueueRun } from '@/app/actions/bots'
+import { cancelRun, enqueueRun } from '@/app/actions/bots'
 import { PageHeader } from '@/components/page-header'
 import { RunLog } from '@/components/bots/run-log'
-import {
-  BotStatusBadge,
-  RefStatusBadge,
-  RunStatusBadge,
-} from '@/components/status-badge'
+import { RunReport } from '@/components/bots/run-report'
+import { BotStatusBadge, RunStatusBadge } from '@/components/status-badge'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -29,7 +22,6 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import { Spinner } from '@/components/ui/spinner'
-import { Switch } from '@/components/ui/switch'
 import {
   Table,
   TableBody,
@@ -39,8 +31,10 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
-import { Input } from '@/components/ui/input'
+import { AiScenarioStudio } from '@/components/bots/ai-scenario-studio'
+import { BotSettingsForm } from '@/components/bots/bot-settings-form'
+import { PythonWorkspaceEditor } from '@/components/bots/python-workspace-editor'
+import { RefPoolManager } from '@/components/bots/ref-pool-manager'
 import {
   formatDateTime,
   formatDuration,
@@ -49,110 +43,128 @@ import {
   type Run,
 } from '@/lib/mock-data'
 
-const LIVE_DURATIONS = [1240, 380, 210, 460, 180, 520, 640, 2600, 940, 720, 1100]
+const fetcher = async (url: string): Promise<Run> => {
+  const response = await fetch(url, { cache: 'no-store' })
+  if (!response.ok) throw new Error('Не удалось обновить прогон')
+  return response.json() as Promise<Run>
+}
 
 export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
   const scenario = bot.scenarioSteps
-
-  function makePendingSteps(): LogStep[] {
-    return scenario.map((s, i) => ({
-      id: `live-${i}`,
-      label: s.label,
-      status: 'pending' as const,
-      durationMs: 0,
-    }))
-  }
-
-  const [liveSteps, setLiveSteps] = React.useState<LogStep[] | null>(null)
-  const [isRunning, setIsRunning] = React.useState(false)
+  const [activeRunId, setActiveRunId] = React.useState<string | null>(
+    botRuns.find((run) => run.status === 'running' || run.status === 'queued')?.id ?? null,
+  )
+  const [isStarting, setIsStarting] = React.useState(false)
+  const [isCancelling, setIsCancelling] = React.useState(false)
+  const [startError, setStartError] = React.useState<string | null>(null)
   const [selectedRun, setSelectedRun] = React.useState<Run | null>(
     botRuns[0] ?? null,
   )
   const [activeTab, setActiveTab] = React.useState('overview')
-  const timeoutsRef = React.useRef<ReturnType<typeof setTimeout>[]>([])
   const router = useRouter()
+  const { data: liveRun, error: liveError, isValidating } = useSWR(
+    activeRunId ? `/api/runs/${activeRunId}` : null,
+    fetcher,
+    {
+      refreshInterval: (data) => {
+        if (typeof document !== 'undefined' && document.hidden) return 0
+        if (data && ['success', 'partial', 'failed', 'cancelled'].includes(data.status)) return 0
+        return data?.status === 'running' ? 1500 : 3000
+      },
+      revalidateOnFocus: true,
+      refreshWhenHidden: false,
+    },
+  )
+  const isRunning = Boolean(
+    activeRunId && (!liveRun || liveRun.status === 'queued' || liveRun.status === 'running'),
+  )
 
   React.useEffect(() => {
-    return () => {
-      timeoutsRef.current.forEach(clearTimeout)
+    if (liveRun && ['success', 'partial', 'failed', 'cancelled'].includes(liveRun.status)) {
+      setSelectedRun(liveRun)
+      router.refresh()
     }
-  }, [])
+  }, [liveRun, router])
 
-  function startLiveRun() {
-    if (isRunning) return
-    setIsRunning(true)
+  async function startLiveRun() {
+    if (isRunning || isStarting) return
+    setIsStarting(true)
+    setStartError(null)
     setActiveTab('logs')
-    const steps = makePendingSteps()
-    setLiveSteps([...steps])
+    try {
+      const { runId } = await enqueueRun(bot.id)
+      setActiveRunId(runId)
+      setSelectedRun(null)
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : 'Не удалось запустить бота')
+      setActiveTab('overview')
+    } finally {
+      setIsStarting(false)
+    }
+  }
 
-    // Ставим реальный прогон в очередь — локальный агент подхватит его.
-    void enqueueRun(bot.id)
-      .then(() => router.refresh())
-      .catch(() => {})
-
-    let elapsed = 300
-    steps.forEach((_, i) => {
-      // Шаг переходит в running
-      timeoutsRef.current.push(
-        setTimeout(() => {
-          setLiveSteps((prev) =>
-            prev
-              ? prev.map((s, j) => (j === i ? { ...s, status: 'running' } : s))
-              : prev,
-          )
-        }, elapsed),
-      )
-      elapsed += LIVE_DURATIONS[i] ?? 500
-      // Шаг завершается успехом
-      timeoutsRef.current.push(
-        setTimeout(() => {
-          setLiveSteps((prev) =>
-            prev
-              ? prev.map((s, j) =>
-                  j === i
-                    ? {
-                        ...s,
-                        status: 'success',
-                        durationMs: LIVE_DURATIONS[i] ?? 500,
-                      }
-                    : s,
-                )
-              : prev,
-          )
-          if (i === steps.length - 1) {
-            setIsRunning(false)
-          }
-        }, elapsed),
-      )
-    })
+  async function stopLiveRun() {
+    if (!activeRunId || isCancelling) return
+    setIsCancelling(true)
+    try {
+      await cancelRun(activeRunId)
+      router.refresh()
+    } finally {
+      setIsCancelling(false)
+    }
   }
 
   return (
     <>
       <PageHeader
         title={bot.name}
-        description={bot.targetUrl.replace('https://', '')}
+        description={`${bot.refs.length} целевых ссылок · ${bot.refs.reduce((sum, link) => sum + link.successCount, 0)}/${bot.refs.reduce((sum, link) => sum + link.successLimit, 0)} успешных регистраций`}
         actions={
           <>
             <BotStatusBadge status={bot.status} />
-            <Button size="sm" onClick={startLiveRun} disabled={isRunning}>
-              {isRunning ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <PlayIcon data-icon="inline-start" />
-              )}
-              {isRunning ? 'Выполняется...' : 'Запустить проверку'}
-            </Button>
+            {isRunning ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={stopLiveRun}
+                disabled={isCancelling}
+              >
+                {isCancelling ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <SquareIcon data-icon="inline-start" />
+                )}
+                {isCancelling ? 'Останавливаем...' : 'Остановить'}
+              </Button>
+            ) : (
+              <Button size="sm" onClick={startLiveRun} disabled={isStarting}>
+                {isStarting ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <PlayIcon data-icon="inline-start" />
+                )}
+                {isStarting ? 'Ставим в очередь...' : 'Запустить проверку'}
+              </Button>
+            )}
           </>
         }
       />
       <main className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
+        {startError ? (
+          <Alert variant="destructive">
+            <AlertTriangleIcon />
+            <AlertTitle>Бот не запущен</AlertTitle>
+            <AlertDescription>{startError}</AlertDescription>
+          </Alert>
+        ) : null}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as string)}>
           <TabsList>
             <TabsTrigger value="overview">Обзор</TabsTrigger>
             <TabsTrigger value="runs">Прогоны</TabsTrigger>
             <TabsTrigger value="logs">Логи</TabsTrigger>
-            <TabsTrigger value="database">Реф-пул</TabsTrigger>
+            <TabsTrigger value="scenario">Сценарий</TabsTrigger>
+            <TabsTrigger value="python">bot.py</TabsTrigger>
+            <TabsTrigger value="database">Целевые ссылки</TabsTrigger>
             <TabsTrigger value="settings">Настройки</TabsTrigger>
           </TabsList>
 
@@ -209,22 +221,10 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                     <Badge variant="secondary">{bot.template}</Badge>
                   </div>
                   <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2.5">
-                    <span className="text-xs text-muted-foreground">Целевой URL</span>
-                    <a
-                      href={bot.targetUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 font-mono text-xs hover:underline"
-                    >
-                      {bot.targetUrl.replace('https://', '')}
-                      <ExternalLinkIcon className="size-3" />
-                    </a>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-2.5">
-                    <span className="text-xs text-muted-foreground">Реф-пул</span>
+                    <span className="text-xs text-muted-foreground">Пул целевых ссылок</span>
                     <span className="flex items-center gap-1.5 font-mono text-xs">
                       <DatabaseIcon className="size-3" />
-                      {bot.refs.length} ссылок
+                      {bot.refs.length} ссылок · {bot.refs.filter((link) => link.status === 'active').length} активных
                     </span>
                   </div>
                 </CardContent>
@@ -275,6 +275,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                       <TableRow>
                         <TableHead>ID</TableHead>
                         <TableHead>Статус</TableHead>
+                        <TableHead className="hidden sm:table-cell">Версия</TableHead>
                         <TableHead className="hidden sm:table-cell">Шаги</TableHead>
                         <TableHead className="hidden sm:table-cell">Время</TableHead>
                         <TableHead className="text-right">Запущен</TableHead>
@@ -286,14 +287,19 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                           key={run.id}
                           className="cursor-pointer"
                           onClick={() => {
-                            setSelectedRun(run)
-                            setLiveSteps(null)
-                            setActiveTab('logs')
+                  setSelectedRun(run)
+                  setActiveRunId(
+                    run.status === 'running' || run.status === 'queued' ? run.id : null,
+                  )
+                  setActiveTab('logs')
                           }}
                         >
                           <TableCell className="font-mono text-xs">{run.id}</TableCell>
                           <TableCell>
                             <RunStatusBadge status={run.status} />
+                          </TableCell>
+                          <TableCell className="hidden font-mono text-xs sm:table-cell">
+                            {bot.scenarioVersions.find((version) => version.id === run.scenarioVersionId)?.version ? `v${bot.scenarioVersions.find((version) => version.id === run.scenarioVersionId)?.version}` : 'legacy'}
                           </TableCell>
                           <TableCell className="hidden font-mono text-xs sm:table-cell">
                             {run.stepsPassed}/{run.stepsTotal}
@@ -315,7 +321,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
 
           {/* ------------------------------ Логи ------------------------------ */}
           <TabsContent value="logs" className="flex flex-col gap-4">
-            {liveSteps ? (
+            {liveRun ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -323,11 +329,12 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                     {isRunning ? 'Живой прогон' : 'Прогон завершён'}
                   </CardTitle>
                   <CardDescription className="font-mono text-xs">
-                    {bot.targetUrl.replace('https://', '')}
+                    {`${bot.refs.length} целевых ссылок в этом пуле`} ·{' '}
+                    {liveError ? 'соединение потеряно' : isValidating ? 'синхронизация…' : 'подключено'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RunLog steps={liveSteps} />
+                  {isRunning ? <RunLog steps={liveRun.steps} /> : <RunReport run={liveRun} />}
                 </CardContent>
               </Card>
             ) : selectedRun ? (
@@ -338,182 +345,46 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                     <RunStatusBadge status={selectedRun.status} />
                   </div>
                   <CardDescription className="font-mono text-xs">
-                    {bot.targetUrl.replace('https://', '')} ·{' '}
+                    {`${bot.refs.length} целевых ссылок в этом пуле`} ·{' '}
                     {formatDateTime(selectedRun.startedAt)} ·{' '}
                     {formatDuration(selectedRun.durationMs)}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <RunLog steps={selectedRun.steps} />
+                  <RunReport run={selectedRun} />
                 </CardContent>
               </Card>
             ) : (
               <div className="flex flex-col items-center gap-1 rounded-md border border-dashed py-10 text-center">
                 <span className="text-sm font-medium">Логов пока нет</span>
                 <span className="text-xs text-muted-foreground">
-                  Запустите проверку или выберите прогон во вкладке «Прогоны»
+                  Запустите проверку или выберите прогон во вкладке «��рогоны»
                 </span>
               </div>
             )}
           </TabsContent>
 
+          {/* ---------------------------- Сценарий ---------------------------- */}
+          <TabsContent value="scenario" className="flex flex-col gap-4">
+            <AiScenarioStudio
+              botId={bot.id}
+              workspace={bot.pythonWorkspace}
+              onOpenPython={() => setActiveTab('python')}
+            />
+          </TabsContent>
+
+          <TabsContent value="python">
+            <PythonWorkspaceEditor botId={bot.id} workspace={bot.pythonWorkspace} />
+          </TabsContent>
+
           {/* ----------------------------- Реф-пул ----------------------------- */}
           <TabsContent value="database">
-            <Card>
-              <CardHeader>
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="flex flex-col gap-1.5">
-                    <CardTitle className="flex items-center gap-2">
-                      <DatabaseIcon className="size-4" />
-                      <span className="font-mono">Реф-пул бота</span>
-                    </CardTitle>
-                    <CardDescription>
-                      Пул реф-ссылок для регистраций: лимиты успехов и счётчики
-                    </CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge
-                      variant="outline"
-                      className="gap-1.5 border-primary/40 text-primary"
-                    >
-                      <span className="size-1.5 rounded-full bg-primary animate-status-pulse" />
-                      {bot.refs.filter((r) => r.status === 'active').length} активных
-                    </Badge>
-                    <Badge variant="secondary" className="font-mono">
-                      {bot.refs.length} ссылок
-                    </Badge>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-4">
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="outline">
-                    <PlusIcon data-icon="inline-start" />
-                    Добавить ссылку
-                  </Button>
-                  <Button size="sm" variant="outline">
-                    <DownloadIcon data-icon="inline-start" />
-                    Импорт CSV
-                  </Button>
-                </div>
-                {bot.refs.length === 0 ? (
-                  <div className="flex flex-col items-center gap-1 rounded-md border border-dashed py-10 text-center">
-                    <span className="text-sm font-medium">Пул пуст</span>
-                    <span className="text-xs text-muted-foreground">
-                      Добавьте первую реф-ссылку для регистраций
-                    </span>
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Реф-ссылка</TableHead>
-                        <TableHead className="hidden sm:table-cell">Прогресс</TableHead>
-                        <TableHead className="hidden md:table-cell">Ошибки</TableHead>
-                        <TableHead>Статус</TableHead>
-                        <TableHead className="hidden sm:table-cell text-right">
-                          Использована
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {bot.refs.map((ref) => (
-                        <TableRow key={ref.id}>
-                          <TableCell className="max-w-[280px]">
-                            <span className="block truncate font-mono text-xs">
-                              {ref.url.replace('https://', '')}
-                            </span>
-                          </TableCell>
-                          <TableCell className="hidden font-mono text-xs sm:table-cell">
-                            {ref.successCount}/{ref.successLimit}
-                          </TableCell>
-                          <TableCell className="hidden font-mono text-xs text-muted-foreground md:table-cell">
-                            {ref.failedCount}
-                          </TableCell>
-                          <TableCell>
-                            <RefStatusBadge status={ref.status} />
-                          </TableCell>
-                          <TableCell className="hidden text-right font-mono text-xs text-muted-foreground sm:table-cell">
-                            {formatDateTime(ref.lastUsedAt)}
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
+            <RefPoolManager botId={bot.id} refs={bot.refs} />
           </TabsContent>
 
           {/* ---------------------------- Настройки ---------------------------- */}
           <TabsContent value="settings">
-            <Card className="max-w-2xl">
-              <CardHeader>
-                <CardTitle>Настройки бота</CardTitle>
-                <CardDescription>
-                  Параметры сценария и поведения при ошибках
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="bot-name">Имя бота</FieldLabel>
-                    <Input id="bot-name" defaultValue={bot.name} />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="bot-url">Целевой URL</FieldLabel>
-                    <Input id="bot-url" defaultValue={bot.targetUrl} className="font-mono" />
-                    <FieldDescription>
-                      Базовый адрес деплоя, который проверяет бот
-                    </FieldDescription>
-                  </Field>
-                  <Field orientation="horizontal">
-                    <div className="flex flex-col gap-0.5">
-                      <FieldLabel htmlFor="block-resources">
-                        Блокировать ресурсы
-                      </FieldLabel>
-                      <FieldDescription>
-                        Не грузить картинки/шрифты для ускорения прогона
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      id="block-resources"
-                      defaultChecked={Boolean(bot.config.blockResources)}
-                    />
-                  </Field>
-                  <Field orientation="horizontal">
-                    <div className="flex flex-col gap-0.5">
-                      <FieldLabel htmlFor="stealth">Stealth-режим</FieldLabel>
-                      <FieldDescription>
-                        Маскировка автоматизации (stealth.js, случайное окно)
-                      </FieldDescription>
-                    </div>
-                    <Switch
-                      id="stealth"
-                      defaultChecked={Boolean(bot.config.stealth)}
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="parallel">Воркеры (параллельные браузеры)</FieldLabel>
-                    <Input
-                      id="parallel"
-                      type="number"
-                      min={1}
-                      max={10}
-                      defaultValue={bot.workers}
-                      className="max-w-24 font-mono"
-                    />
-                    <FieldDescription>
-                      Количество одновременных браузеров на локальном раннере
-                    </FieldDescription>
-                  </Field>
-                  <div className="flex justify-end gap-2">
-                    <Button variant="outline">Отмена</Button>
-                    <Button>Сохранить</Button>
-                  </div>
-                </FieldGroup>
-              </CardContent>
-            </Card>
+            <BotSettingsForm bot={bot} />
           </TabsContent>
         </Tabs>
       </main>

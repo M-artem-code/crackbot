@@ -30,6 +30,8 @@ import {
 import { formatDateTime, formatDuration } from "@/lib/mock-data"
 import { getBots, getDailyStats, getDashboardStats, getRecentRuns } from "@/lib/queries"
 
+export const dynamic = "force-dynamic"
+
 export default async function DashboardPage() {
   const [bots, dailyStats, stats, recentRuns] = await Promise.all([
     getBots(),
