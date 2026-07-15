@@ -3,21 +3,19 @@
 import { randomUUID } from 'node:crypto'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { and, eq, inArray } from 'drizzle-orm'
+import { eq, inArray, and } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
-import { runs } from '@/lib/db/schema'
-import { requireWorkspace } from '@/lib/workspace'
+import { bots, runs } from '@/lib/db/schema'
+import { startLocalRun } from '@/lib/local-runner'
 
 export async function retryRun(runId: string) {
-  const { workspace } = await requireWorkspace()
-  const [source] = await db.select().from(runs).where(and(eq(runs.id, runId), eq(runs.workspaceId, workspace.id), inArray(runs.status, ['failed', 'cancelled']))).limit(1)
+  const [source] = await db.select().from(runs).where(and(eq(runs.id, runId), inArray(runs.status, ['failed', 'cancelled']))).limit(1)
   if (!source) throw new Error('Этот прогон нельзя повторить')
 
   const id = `run_${randomUUID().replaceAll('-', '')}`
   await db.insert(runs).values({
     id,
-    workspaceId: workspace.id,
     botId: source.botId,
     status: 'queued',
     source: 'retry',
@@ -25,9 +23,9 @@ export async function retryRun(runId: string) {
     totalWorkers: source.totalWorkers,
     scenarioVersionId: source.scenarioVersionId,
     scenarioSnapshot: source.scenarioSnapshot,
-    maxInfraAttempts: source.maxInfraAttempts,
-    availableAt: new Date(),
   })
+  await db.update(bots).set({ status: 'active', updatedAt: new Date() }).where(eq(bots.id, source.botId))
+  startLocalRun(id)
   revalidatePath('/runs')
   redirect(`/runs/${id}`)
 }
