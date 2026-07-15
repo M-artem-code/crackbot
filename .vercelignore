@@ -1,0 +1,11 @@
+.git
+.next
+.venv*
+node_modules
+coverage
+agent/__pycache__
+agent/artifacts
+agent/build
+agent/dist
+installer/output
+tsconfig.tsbuildinfo

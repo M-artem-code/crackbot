@@ -1,0 +1,7 @@
+{
+  "server_url": "https://your-crackbot-dashboard.vercel.app",
+  "api_key": "agt_replace_with_key_from_dashboard",
+  "poll_interval_sec": 5,
+  "headless": true,
+  "proxy": null
+}

@@ -1,43 +1,25 @@
-import "server-only"
+import 'server-only'
 
-import { db } from "@/lib/db"
-import { agents } from "@/lib/db/schema"
-import { eq } from "drizzle-orm"
+import { createHash, timingSafeEqual } from 'node:crypto'
+import { eq } from 'drizzle-orm'
 
-export interface AuthedAgent {
-  id: string
-  name: string
-}
+import { db } from '@/lib/db'
+import { agents } from '@/lib/db/schema'
 
-/**
- * Достаёт API-ключ из заголовка Authorization: Bearer <key> (или X-Api-Key),
- * проверяет его в таблице agents и обновляет heartbeat (last_seen_at + online).
- * Возвращает агента или null, если ключ невалиден.
- */
+export interface AuthedAgent { id: string; name: string; workspaceId: string; protocolVersion: number; capabilities: unknown }
+function hash(value: string) { return createHash('sha256').update(value).digest() }
+
 export async function authenticateAgent(req: Request): Promise<AuthedAgent | null> {
-  const header = req.headers.get("authorization") ?? ""
-  const bearer = header.toLowerCase().startsWith("bearer ")
-    ? header.slice(7).trim()
-    : null
-  const apiKey = bearer ?? req.headers.get("x-api-key")?.trim() ?? null
+  const header = req.headers.get('authorization') ?? ''
+  const apiKey = header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : req.headers.get('x-api-key')?.trim()
   if (!apiKey) return null
-
-  const rows = await db
-    .select()
-    .from(agents)
-    .where(eq(agents.apiKey, apiKey))
-    .limit(1)
-  if (rows.length === 0) return null
-
-  const agent = rows[0]
-  await db
-    .update(agents)
-    .set({ status: "online", lastSeenAt: new Date() })
-    .where(eq(agents.id, agent.id))
-
-  return { id: agent.id, name: agent.name }
+  const digest = hash(apiKey); const hex = digest.toString('hex')
+  const [agent] = await db.select().from(agents).where(eq(agents.apiKeyHash, hex)).limit(1)
+  if (!agent || !agent.workspaceId || agent.status === 'disabled' || !agent.apiKeyHash) return null
+  const stored = Buffer.from(agent.apiKeyHash, 'hex')
+  if (stored.length !== digest.length || !timingSafeEqual(stored, digest)) return null
+  await db.update(agents).set({ lastSeenAt: new Date() }).where(eq(agents.id, agent.id))
+  return { id: agent.id, name: agent.name, workspaceId: agent.workspaceId, protocolVersion: agent.protocolVersion, capabilities: agent.capabilities }
 }
 
-export function unauthorized(): Response {
-  return Response.json({ error: "Неверный или отсутствующий API-ключ" }, { status: 401 })
-}
+export function unauthorized() { return Response.json({ error: 'Неверный или отсутствующий API-ключ' }, { status: 401 }) }

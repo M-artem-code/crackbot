@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+agent-config.json
+artifacts/
+.v0-sandbox/
+test_*.py

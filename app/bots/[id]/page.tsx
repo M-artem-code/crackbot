@@ -4,6 +4,8 @@ import { AppShell } from '@/components/app-shell'
 import { BotDetail } from '@/components/bots/bot-detail'
 import { getBot, getRunsForBot } from '@/lib/queries'
 
+export const dynamic = 'force-dynamic'
+
 export default async function BotPage({
   params,
 }: {

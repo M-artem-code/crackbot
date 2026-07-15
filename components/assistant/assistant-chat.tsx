@@ -1,9 +1,12 @@
 "use client"
 
 import * as React from "react"
+import Link from "next/link"
 import { BotIcon, SendIcon, SparklesIcon, UserIcon } from "lucide-react"
 
-import { assistantSuggestions, getAssistantReply } from "@/lib/mock-data"
+import { assistantSuggestions } from "@/lib/mock-data"
+import type { AiProviderSummary } from "@/lib/ai-provider"
+import type { AssistantMessage } from "@/lib/assistant"
 import { Button } from "@/components/ui/button"
 import {
   InputGroup,
@@ -27,11 +30,7 @@ import {
 } from "@/components/ui/message-scroller"
 import { Kbd } from "@/components/ui/kbd"
 
-type ChatMessage = {
-  id: string
-  role: "user" | "assistant"
-  content: string
-}
+type ChatMessage = AssistantMessage
 
 const initialMessages: ChatMessage[] = [
   {
@@ -42,35 +41,52 @@ const initialMessages: ChatMessage[] = [
   },
 ]
 
-export function AssistantChat() {
-  const [messages, setMessages] = React.useState<ChatMessage[]>(initialMessages)
+export function AssistantChat({ initialHistory, provider }: { initialHistory: ChatMessage[]; provider: AiProviderSummary | null }) {
+  const [messages, setMessages] = React.useState<ChatMessage[]>(initialHistory.length ? initialHistory : initialMessages)
   const [input, setInput] = React.useState("")
   const [isTyping, setIsTyping] = React.useState(false)
+  const [error, setError] = React.useState("")
 
-  function sendMessage(text: string) {
+  async function sendMessage(text: string) {
     const trimmed = text.trim()
-    if (!trimmed || isTyping) return
+    if (!trimmed || isTyping || !provider) return
 
-    const userMessage: ChatMessage = {
-      id: `m-${Date.now()}-u`,
-      role: "user",
-      content: trimmed,
-    }
-    setMessages((prev) => [...prev, userMessage])
+    const messageIndex = messages.length
+    const userMessage: ChatMessage = { id: `m-${messageIndex}-u`, role: "user", content: trimmed }
+    const assistantId = `m-${messageIndex}-a`
+    const nextMessages = [...messages, userMessage]
+    setMessages([...nextMessages, { id: assistantId, role: "assistant", content: "" }])
     setInput("")
+    setError("")
     setIsTyping(true)
 
-    setTimeout(() => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `m-${Date.now()}-a`,
-          role: "assistant",
-          content: getAssistantReply(trimmed),
-        },
-      ])
+    try {
+      const response = await fetch('/api/assistant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: nextMessages.map(({ role, content }) => ({ role, content })) }),
+      })
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string }
+        throw new Error(body.error || 'AI-провайдер не ответил')
+      }
+      if (!response.body) throw new Error('Пустой поток ответа')
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      async function consumeStream(content: string): Promise<void> {
+        const { done, value } = await reader.read()
+        if (done) return
+        const nextContent = content + decoder.decode(value, { stream: true })
+        setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content: nextContent } : item))
+        await consumeStream(nextContent)
+      }
+      await consumeStream('')
+    } catch (cause) {
+      setMessages((current) => current.filter((item) => item.id !== assistantId))
+      setError(cause instanceof Error ? cause.message : 'Не удалось получить ответ')
+    } finally {
       setIsTyping(false)
-    }, 900)
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -88,7 +104,7 @@ export function AssistantChat() {
         <div>
           <h1 className="text-sm font-semibold">AI-ассистент</h1>
           <p className="text-xs text-muted-foreground">
-            Отвечает на вопросы о ботах и помогает со сценариями
+            {provider ? `${provider.name} · ${provider.modelId}` : "Нужен ваш AI API-ключ"}
           </p>
         </div>
       </div>
@@ -147,6 +163,8 @@ export function AssistantChat() {
 
       <div className="border-t px-6 py-4">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
+          {!provider ? <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted p-3 text-sm"><span>Подключите OpenAI или другой совместимый API, чтобы разблокировать ассистента.</span><Button size="sm" render={<Link href="/settings/ai" />}>Настроить AI</Button></div> : null}
+          {error ? <p className="rounded-lg border bg-muted p-3 text-sm" role="alert">{error}</p> : null}
           <div className="flex flex-wrap gap-2">
             {assistantSuggestions.map((suggestion) => (
               <Button
@@ -154,7 +172,7 @@ export function AssistantChat() {
                 variant="outline"
                 size="sm"
                 onClick={() => sendMessage(suggestion)}
-                disabled={isTyping}
+                disabled={isTyping || !provider}
               >
                 {suggestion}
               </Button>
@@ -177,7 +195,7 @@ export function AssistantChat() {
                 size="icon-sm"
                 className="ms-auto"
                 onClick={() => sendMessage(input)}
-                disabled={!input.trim() || isTyping}
+                disabled={!input.trim() || isTyping || !provider}
                 aria-label="Отправить сообщение"
               >
                 <SendIcon />

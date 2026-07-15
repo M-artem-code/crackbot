@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import shutil
+import tempfile
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+def _redact_runtime_text(value: Any, secrets: List[str]) -> str:
+    text = str(value)
+    for secret in sorted((item for item in secrets if item), key=len, reverse=True):
+        text = text.replace(secret, "[REDACTED]")
+    return text
+
+
+def _safe_target_url(value: Any) -> str:
+    try:
+        parts = urlsplit(str(value))
+        query = urlencode([(key, "[REDACTED]") for key, _ in parse_qsl(parts.query, keep_blank_values=True)])
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
+    except ValueError:
+        return "[invalid-url]"
+
+
+@dataclass
+class SandboxResult:
+    status: str
+    success_count: int = 0
+    failed_count: int = 0
+    errors: List[str] = field(default_factory=list)
+    output: str = ""
+    artifact_paths: List[Path] = field(default_factory=list)
+    target_results: List[Dict[str, Any]] = field(default_factory=list)
+
+
+async def run_python_sandbox(job: Dict[str, Any], log: Callable[..., None]) -> SandboxResult:
+    scenario = job.get("scenario") or {}
+    python_files = scenario.get("python") or job.get("python") or {}
+    code = str(python_files.get("code") or "")
+    requirements = str(python_files.get("requirements") or "")
+    assets = python_files.get("assets") or {}
+    targets = job.get("targets") or []
+    if not code.strip():
+        return SandboxResult(status="failed", failed_count=1, errors=["В Python snapshot отсутствует bot.py"])
+
+    runtime = shutil.which("docker") or shutil.which("podman")
+    if not runtime:
+        return SandboxResult(status="failed", failed_count=1, errors=["Для Python workspace установите Docker или Podman на машине агента"])
+
+    target = next((item for item in targets if int(item.get("id", 0)) == int(scenario.get("targetId", 0))), targets[0] if targets else None)
+    if not target:
+        return SandboxResult(status="failed", failed_count=1, errors=["В пуле нет цели для Python-прогона"])
+
+    root = Path(tempfile.mkdtemp(prefix="crackbot-python-"))
+    artifacts = root / "artifacts"
+    artifacts.mkdir(mode=0o700)
+    (root / "bot.py").write_text(code, encoding="utf-8")
+    (root / "requirements.txt").write_text(requirements, encoding="utf-8")
+    for name, content in assets.items():
+        safe_name = Path(str(name)).name
+        if safe_name != name or safe_name in {"bot.py", "requirements.txt", "input.json"}:
+            continue
+        if not isinstance(content, str) or len(content.encode("utf-8")) > 512 * 1024:
+            continue
+        (root / safe_name).write_text(content, encoding="utf-8")
+    runtime_config = (job.get("bot") or {}).get("config") or {}
+    payload = {"runId": job.get("runId"), "bot": job.get("bot"), "target": target, "config": runtime_config}
+    (root / "input.json").write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    wrapper = "set -eu; python -m pip install --disable-pip-version-check --no-input --requirement /workspace/requirements.txt; CRACKBOT_INPUT=/workspace/input.json python /workspace/bot.py"
+    image = os.environ.get("CRACKBOT_PYTHON_IMAGE", "crackbot/nodriver-agent:latest")
+    command = [runtime, "run", "--rm", "--init", "--network", "bridge", "--cpus", "2", "--memory", "2g", "--pids-limit", "256", "--shm-size", "512m", "--read-only", "--tmpfs", "/tmp:rw,nosuid,size=512m", "--security-opt", "no-new-privileges", "--cap-drop", "ALL", "--user", "1000:1000", "-v", f"{root}:/workspace:rw", "-w", "/workspace", image, "bash", "-lc", wrapper]
+    secrets = [str(runtime_config.get(key) or "") for key in ("runtimeProxy", "runtimePassword", "password")]
+    log("python-sandbox", f"Запуск bot.py для {_safe_target_url(target.get('url'))}", metadata={"targetId": target.get("id")})
+    try:
+        process = await asyncio.create_subprocess_exec(*command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env={"PATH": os.environ.get("PATH", "")})
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=900)
+        raw_output = stdout.decode("utf-8", errors="replace")[-50_000:]
+        result_line = next((line for line in reversed(raw_output.splitlines()) if line.strip().startswith("{") and line.strip().endswith("}")), "")
+        parsed = json.loads(result_line) if result_line else {}
+        output = _redact_runtime_text(raw_output, secrets)
+        success = process.returncode == 0 and bool(parsed.get("success"))
+        durable_artifacts = Path(tempfile.mkdtemp(prefix="crackbot-python-artifacts-"))
+        paths = []
+        for source in artifacts.rglob("*"):
+            if source.is_file() and source.stat().st_size <= 25 * 1024 * 1024:
+                destination = durable_artifacts / source.relative_to(artifacts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                paths.append(destination)
+        error_message = _redact_runtime_text(parsed.get("message") or f"bot.py завершился с кодом {process.returncode}", secrets)
+        return SandboxResult(status="success" if success else "failed", success_count=1 if success else 0, failed_count=0 if success else 1, errors=[] if success else [error_message], output=output, artifact_paths=paths, target_results=[{"id": int(target["id"]), "successCount": 1 if success else 0, "failedCount": 0 if success else 1}])
+    except asyncio.TimeoutError:
+        process.kill(); await process.wait()
+        return SandboxResult(status="failed", failed_count=1, errors=["Python sandbox превысил лимит 15 минут"], output="Timeout")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)

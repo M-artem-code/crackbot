@@ -1,83 +1,85 @@
-import { db } from "@/lib/db"
-import { botRefs, bots, runs, templates } from "@/lib/db/schema"
-import { authenticateAgent, unauthorized } from "@/lib/agent-auth"
-import { and, asc, eq, sql } from "drizzle-orm"
+import { randomUUID } from 'node:crypto'
 
-export const dynamic = "force-dynamic"
+import { and, asc, eq, sql } from 'drizzle-orm'
 
-/**
- * Агент опрашивает этот эндпоинт: "есть ли для меня задание?"
- * Атомарно захватывает один run в статусе 'queued', переводит в 'running'
- * и возвращает полный пакет для запуска: шаблон, конфиг бота и активный реф.
- */
+import { authenticateAgent, unauthorized } from '@/lib/agent-auth'
+import { db } from '@/lib/db'
+import { botRefs, bots, pythonWorkspaces, runs, templates } from '@/lib/db/schema'
+import { selectPythonJobPayload } from '@/lib/python-job-payload'
+import { AGENT_PROTOCOL_VERSION, isAgentCompatible, issueLeaseToken, LEASE_TTL_SECONDS } from '@/lib/run-leases'
+
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: Request) {
   const agent = await authenticateAgent(req)
   if (!agent) return unauthorized()
-
-  // Атомарный захват одного queued-прогона именно этим агентом.
-  const claimed = await db.execute(sql`
-    UPDATE runs
-    SET status = 'running',
-        agent_id = ${agent.id},
-        started_at = now()
-    WHERE id = (
-      SELECT id FROM runs
-      WHERE status = 'queued'
-      ORDER BY created_at ASC
-      LIMIT 1
-      FOR UPDATE SKIP LOCKED
-    )
-    RETURNING id, bot_id
-  `)
-
-  const row = (claimed.rows?.[0] ?? null) as { id: string; bot_id: string } | null
-  if (!row) {
-    return Response.json({ job: null })
+  if (!isAgentCompatible(agent)) {
+    return Response.json({ error: 'Обновите агент для поддержки lease protocol', code: 'UPGRADE_REQUIRED', requiredProtocol: AGENT_PROTOCOL_VERSION }, { status: 426 })
   }
 
-  const [botRow] = await db.select().from(bots).where(eq(bots.id, row.bot_id)).limit(1)
-  const [tplRow] = botRow
-    ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1)
-    : []
+  const lease = issueLeaseToken()
+  const attemptId = `att_${randomUUID().replaceAll('-', '')}`
+  const claimed = await db.execute(sql`
+    WITH candidate AS (
+      SELECT id FROM runs
+      WHERE status = 'queued'
+        AND workspace_id = ${agent.workspaceId}
+        AND available_at <= now()
+        AND EXISTS (
+          SELECT 1 FROM python_workspaces pw
+          WHERE pw.bot_id = runs.bot_id
+            AND pw.workspace_id = runs.workspace_id
+            AND length(pw.published_code) > 0
+        )
+      ORDER BY available_at ASC, created_at ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    ), updated AS (
+      UPDATE runs
+      SET status = 'running', agent_id = ${agent.id}, lease_owner_agent_id = ${agent.id},
+          lease_token_hash = ${lease.hash}, leased_at = now(), last_heartbeat_at = now(),
+          lease_expires_at = now() + (${LEASE_TTL_SECONDS} * interval '1 second'),
+          started_at = COALESCE(started_at, now()), attempt = attempt + 1
+      WHERE id = (SELECT id FROM candidate)
+      RETURNING id, bot_id, scenario_snapshot, attempt, workspace_id
+    )
+    INSERT INTO run_attempts (id, workspace_id, run_id, agent_id, attempt, lease_token_hash, claimed_at, started_at, last_heartbeat_at)
+    SELECT ${attemptId}, workspace_id, id, ${agent.id}, attempt, ${lease.hash}, now(), now(), now() FROM updated
+    RETURNING run_id, attempt
+  `)
 
-  // Берём активный реф с наименьшим прогрессом (round-robin по нагрузке).
-  const [refRow] = await db
-    .select()
-    .from(botRefs)
-    .where(and(eq(botRefs.botId, row.bot_id), eq(botRefs.status, "active")))
-    .orderBy(asc(botRefs.successCount))
-    .limit(1)
+  const attemptRow = (claimed.rows?.[0] ?? null) as { run_id: string; attempt: number } | null
+  if (!attemptRow) return Response.json({ job: null })
+
+  const [run] = await db.select().from(runs).where(and(eq(runs.id, attemptRow.run_id), eq(runs.workspaceId, agent.workspaceId))).limit(1)
+  if (!run) return Response.json({ job: null })
+  const [botRow] = await db.select().from(bots).where(and(eq(bots.id, run.botId), eq(bots.workspaceId, agent.workspaceId))).limit(1)
+  const [tplRow] = botRow ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1) : []
+  const [pythonWorkspace] = await db.select({ publishedCode: pythonWorkspaces.publishedCode, publishedRequirements: pythonWorkspaces.publishedRequirements }).from(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, run.botId), eq(pythonWorkspaces.workspaceId, agent.workspaceId))).limit(1)
+  const pythonPayload = selectPythonJobPayload(run.scenarioSnapshot, pythonWorkspace)
+  if (!pythonPayload) return Response.json({ error: 'Python bot is not published' }, { status: 409 })
+  const targetRows = await db.select().from(botRefs).where(and(eq(botRefs.botId, run.botId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.status, 'active'), sql`${botRefs.successCount} < ${botRefs.successLimit}`)).orderBy(asc(botRefs.position), asc(botRefs.id))
+  const storedConfig = (botRow?.config && typeof botRow.config === 'object' ? botRow.config : {}) as Record<string, unknown>
+  const blockedConfigKeys = new Set(['proxySecret', 'passwordSecret', 'proxy', 'password'])
+  const publicConfig = Object.fromEntries(Object.entries(storedConfig).filter(([key]) => !blockedConfigKeys.has(key)))
 
   return Response.json({
     job: {
-      runId: row.id,
-      bot: botRow
-        ? {
-            id: botRow.id,
-            name: botRow.name,
-            targetUrl: botRow.targetUrl,
-            workers: botRow.workers,
-            config: botRow.config,
-          }
-        : null,
-      template: tplRow
-        ? {
-            slug: tplRow.slug,
-            engine: tplRow.engine,
-            flowType: tplRow.flowType,
-            fields: tplRow.fields,
-            defaultConfig: tplRow.defaultConfig,
-            scenarioSteps: tplRow.scenarioSteps,
-          }
-        : null,
-      ref: refRow
-        ? {
-            id: refRow.id,
-            url: refRow.url,
-            successLimit: refRow.successLimit,
-            successCount: refRow.successCount,
-          }
-        : null,
+      runId: run.id,
+      attempt: attemptRow.attempt,
+      leaseToken: lease.token,
+      leaseExpiresInSeconds: LEASE_TTL_SECONDS,
+      protocolVersion: AGENT_PROTOCOL_VERSION,
+      python: {
+        code: pythonPayload.code,
+        requirements: pythonPayload.requirements,
+        timeoutSeconds: 900,
+        limits: { cpus: 1, memoryMb: 512, pids: 256, outputBytes: 1_000_000 },
+        internetAccess: true,
+      },
+      bot: botRow ? { id: botRow.id, name: botRow.name, targetUrl: botRow.targetUrl, workers: botRow.workers, config: publicConfig } : null,
+      template: tplRow ? { slug: tplRow.slug, engine: tplRow.engine, flowType: tplRow.flowType, fields: tplRow.fields, defaultConfig: tplRow.defaultConfig, scenarioSteps: tplRow.scenarioSteps } : null,
+      targets: targetRows.map((target) => ({ id: target.id, url: target.url, label: target.label, position: target.position, successLimit: target.successLimit, successCount: target.successCount, remaining: Math.max(0, target.successLimit - target.successCount) })),
     },
   })
 }

@@ -1,0 +1,11 @@
+{
+  "runId": null,
+  "worker": 1,
+  "status": "failed",
+  "scenario": {
+    "version": 1,
+    "name": "Registration with email OTP"
+  },
+  "targetUrl": "http://localhost:3000/test-stand/register",
+  "error": "Ожидаемый текст 'This text must never exist' не найден"
+}
