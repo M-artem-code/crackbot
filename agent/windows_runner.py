@@ -15,7 +15,7 @@ from credential_store import load_agent_key, save_agent_key
 from docker_executor import cleanup_orphans, docker_status, execute_python
 from pairing import exchange_pairing_token
 
-VERSION = "0.1.0-beta.1"
+VERSION = "0.1.0-beta.4"
 DEFAULT_SERVER = os.environ.get("BOTFORGE_SERVER_URL", "http://localhost:3000").rstrip("/")
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "BotForge" / "Runner"
 CONFIG_FILE = CONFIG_DIR / "config.json"

@@ -1,5 +1,5 @@
 #define MyAppName "BotForge Runner Beta"
-#define MyAppVersion "0.1.0-beta.1"
+#define MyAppVersion "0.1.0-beta.4"
 #define MyAppExeName "BotForgeRunner.exe"
 #ifndef AppServerUrl
   #define AppServerUrl "https://botforge.example"
@@ -34,6 +34,7 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "{code:RunnerArguments}"; Descrip
 [Code]
 var
   PairToken: String;
+  PairingPage: TInputQueryWizardPage;
 
 function ExtractPairToken(): String;
 var
@@ -53,12 +54,31 @@ begin
   Result := (Length(Token) >= 45) and (Length(Token) <= 65) and (Copy(Token, 1, 5) = 'pair_');
 end;
 
-function InitializeSetup(): Boolean;
+procedure InitializeWizard();
 begin
   PairToken := ExtractPairToken();
-  Result := IsValidPairToken(PairToken);
-  if not Result then
-    MsgBox('Этот setup не содержит действительный код подключения. Скачайте новый установщик в BotForge.', mbError, MB_OK);
+  if not IsValidPairToken(PairToken) then
+  begin
+    PairingPage := CreateInputQueryPage(
+      wpWelcome,
+      'Подключение к BotForge',
+      'Введите одноразовый код подключения',
+      'Создайте агента в BotForge, скопируйте код подключения и вставьте его ниже. Код действует 10 минут и используется только один раз.'
+    );
+    PairingPage.Add('Код подключения:', False);
+  end;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+  if (PairingPage <> nil) and (CurPageID = PairingPage.ID) then
+  begin
+    PairToken := Trim(PairingPage.Values[0]);
+    Result := IsValidPairToken(PairToken);
+    if not Result then
+      MsgBox('Некорректный код. Скопируйте новый одноразовый код на странице «Агенты» в BotForge.', mbError, MB_OK);
+  end;
 end;
 
 function RunnerArguments(Param: String): String;
