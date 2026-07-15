@@ -62,13 +62,17 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
   )
   const [activeTab, setActiveTab] = React.useState('overview')
   const router = useRouter()
-  const { data: liveRun } = useSWR(
+  const { data: liveRun, error: liveError, isValidating } = useSWR(
     activeRunId ? `/api/runs/${activeRunId}` : null,
     fetcher,
     {
-      refreshInterval: (data) =>
-        data && ['success', 'partial', 'failed', 'cancelled'].includes(data.status) ? 0 : 1000,
+      refreshInterval: (data) => {
+        if (typeof document !== 'undefined' && document.hidden) return 0
+        if (data && ['success', 'partial', 'failed', 'cancelled'].includes(data.status)) return 0
+        return data?.status === 'running' ? 1500 : 3000
+      },
       revalidateOnFocus: true,
+      refreshWhenHidden: false,
     },
   )
   const isRunning = Boolean(
@@ -325,7 +329,8 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                     {isRunning ? 'Живой прогон' : 'Прогон завершён'}
                   </CardTitle>
                   <CardDescription className="font-mono text-xs">
-                    {`${bot.refs.length} целевых ссылок в этом пуле`}
+                    {`${bot.refs.length} целевых ссылок в этом пуле`} ·{' '}
+                    {liveError ? 'соединение потеряно' : isValidating ? 'синхронизация…' : 'подключено'}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -353,7 +358,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
               <div className="flex flex-col items-center gap-1 rounded-md border border-dashed py-10 text-center">
                 <span className="text-sm font-medium">Логов пока нет</span>
                 <span className="text-xs text-muted-foreground">
-                  Запустите проверку или выберите прогон во вкладке «Прогоны»
+                  Запустите проверку или выберите прогон во вкладке «��рогоны»
                 </span>
               </div>
             )}

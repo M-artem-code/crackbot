@@ -63,9 +63,9 @@ class CrackbotClient:
 
     # ----- Контрактные методы -----
 
-    def heartbeat(self, os_label: str) -> Dict[str, Any]:
-        """Сообщает серверу, что агент жив, и передаёт метку ОС."""
-        return self._post("/api/agent/heartbeat", {"os": os_label, "protocolVersion": 2, "capabilities": ["python-docker-v1", "leases", "cancellation"], "runnerVersion": "0.1.0-beta.1"})
+    def heartbeat(self, os_label: str, runner_version: str = "unknown") -> Dict[str, Any]:
+        """Сообщает серверу, что агент жив, и передаёт реальную версию сборки."""
+        return self._post("/api/agent/heartbeat", {"os": os_label, "protocolVersion": 2, "capabilities": ["python-docker-v1", "leases", "cancellation"], "runnerVersion": runner_version})
 
     def poll_job(self) -> Optional[Dict[str, Any]]:
         """Пытается захватить одно задание. Возвращает job или None."""

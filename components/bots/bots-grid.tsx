@@ -7,8 +7,11 @@ import {
   PauseIcon,
   PlayIcon,
   SearchIcon,
+  Trash2Icon,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 
+import { deleteBot, updateBotStatus } from '@/app/actions/bots'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -29,10 +32,48 @@ import { formatDateTime, type Bot, type BotStatus } from '@/lib/mock-data'
 type Filter = 'all' | BotStatus
 
 export function BotsGrid({ bots }: { bots: Bot[] }) {
+  const router = useRouter()
   const [query, setQuery] = React.useState('')
   const [filter, setFilter] = React.useState<Filter>('all')
+  const [localBots, setLocalBots] = React.useState(bots)
+  const [pendingBotId, setPendingBotId] = React.useState<string | null>(null)
+  const [feedback, setFeedback] = React.useState<{ type: 'success' | 'error'; text: string } | null>(null)
 
-  const filtered = bots.filter((bot) => {
+  React.useEffect(() => setLocalBots(bots), [bots])
+
+  async function togglePause(bot: Bot) {
+    const nextStatus = bot.status === 'paused' ? 'idle' : 'paused'
+    setPendingBotId(bot.id)
+    setFeedback(null)
+    setLocalBots((current) => current.map((item) => item.id === bot.id ? { ...item, status: nextStatus } : item))
+    try {
+      await updateBotStatus(bot.id, nextStatus)
+      setFeedback({ type: 'success', text: nextStatus === 'paused' ? 'Бот поставлен на паузу' : 'Бот готов к запуску' })
+      router.refresh()
+    } catch (error) {
+      setLocalBots((current) => current.map((item) => item.id === bot.id ? { ...item, status: bot.status } : item))
+      setFeedback({ type: 'error', text: error instanceof Error ? error.message : 'Не удалось изменить статус' })
+    } finally {
+      setPendingBotId(null)
+    }
+  }
+
+  async function removeBot(bot: Bot) {
+    if (!window.confirm(`Удалить бота «${bot.name}» и все его прогоны? Это действие нельзя отменить.`)) return
+    setPendingBotId(bot.id)
+    setFeedback(null)
+    try {
+      await deleteBot(bot.id)
+      setLocalBots((current) => current.filter((item) => item.id !== bot.id))
+      setFeedback({ type: 'success', text: 'Бот удалён' })
+      router.refresh()
+    } catch (error) {
+      setFeedback({ type: 'error', text: error instanceof Error ? error.message : 'Не удалось удалить бота' })
+      setPendingBotId(null)
+    }
+  }
+
+  const filtered = localBots.filter((bot) => {
     const matchesFilter = filter === 'all' || bot.status === filter
     const q = query.trim().toLowerCase()
     const matchesQuery =
@@ -70,6 +111,8 @@ export function BotsGrid({ bots }: { bots: Bot[] }) {
           <ToggleGroupItem value="error">Ошибки</ToggleGroupItem>
         </ToggleGroup>
       </div>
+
+      {feedback ? <p role="status" className={feedback.type === 'error' ? 'text-sm text-destructive' : 'text-sm text-primary'}>{feedback.text}</p> : null}
 
       {/* Grid */}
       {filtered.length === 0 ? (
@@ -142,13 +185,22 @@ export function BotsGrid({ bots }: { bots: Bot[] }) {
                   Запуск: {formatDateTime(bot.lastRunAt)}
                 </span>
                 <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    disabled={pendingBotId === bot.id}
+                    onClick={() => removeBot(bot)}
+                    aria-label={`Удалить бота ${bot.name}`}
+                  >
+                    <Trash2Icon />
+                  </Button>
                   {bot.status === 'paused' ? (
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" disabled={pendingBotId === bot.id} onClick={() => togglePause(bot)}>
                       <PlayIcon data-icon="inline-start" />
-                      Запустить
+                      Продолжить
                     </Button>
                   ) : (
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" disabled={pendingBotId === bot.id} onClick={() => togglePause(bot)}>
                       <PauseIcon data-icon="inline-start" />
                       Пауза
                     </Button>

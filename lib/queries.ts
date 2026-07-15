@@ -48,9 +48,14 @@ export async function getBots(): Promise<Bot[]> {
     db.select().from(pythonVersions).where(eq(pythonVersions.workspaceId, scope)).orderBy(desc(pythonVersions.version)),
   ])
   const tplById = new Map(tplRows.map((t) => [t.id, t]))
+  const runsByBot = Map.groupBy(runRows, (row) => row.botId)
+  const refsByBot = Map.groupBy(refRows, (row) => row.botId)
+  const versionsByBot = Map.groupBy(versionRows, (row) => row.botId)
+  const pythonByBot = new Map(pythonRows.map((row) => [row.botId, row]))
+  const pythonVersionsByBot = Map.groupBy(pythonVersionRows, (row) => row.botId)
   return botRows.map((b) => {
     const tpl = tplById.get(b.templateId)
-    const botRuns = runRows.filter((r) => r.botId === b.id)
+    const botRuns = runsByBot.get(b.id) ?? []
     const finished = botRuns.filter((r) => r.status === "success" || r.status === "failed")
     const success = finished.filter((r) => r.status === "success")
     const lastRunAt = botRuns.reduce<Date | null>((latest, r) => { const started = r.startedAt ?? r.createdAt; return started && (!latest || started > latest) ? started : latest }, null)
@@ -59,12 +64,12 @@ export async function getBots(): Promise<Bot[]> {
       template: tpl?.name ?? "—", templateSlug: tpl?.slug ?? "", flowType: tpl?.flowType ?? "otp", totalRuns: botRuns.length,
       successRate: finished.length ? Math.round((success.length / finished.length) * 100) : 0, lastRunAt: iso(lastRunAt),
       avgDurationMs: finished.length ? Math.round(finished.reduce((a, r) => a + r.durationMs, 0) / finished.length) : 0, workers: b.workers,
-      refs: refRows.filter((r) => r.botId === b.id).map((r) => ({ id: String(r.id), url: r.url, successLimit: r.successLimit, successCount: r.successCount, failedCount: r.failedCount, status: r.status as RefStatus, lastUsedAt: iso(r.lastUsedAt) })),
+      refs: (refsByBot.get(b.id) ?? []).map((r) => ({ id: String(r.id), url: r.url, successLimit: r.successLimit, successCount: r.successCount, failedCount: r.failedCount, status: r.status as RefStatus, lastUsedAt: iso(r.lastUsedAt) })),
       scenarioSteps: (tpl?.scenarioSteps as ScenarioStep[]) ?? [], scenarioDraft: b.scenarioDraft ? assertScenarioDefinition(b.scenarioDraft) : null,
       scenarioPublished: assertScenarioDefinition(b.scenarioPublished ?? tpl?.scenarioDefinition) as ScenarioDefinition,
       scenarioStatus: b.scenarioStatus as "draft" | "published", publishedScenarioVersionId: b.publishedScenarioVersionId,
-      scenarioVersions: versionRows.filter((v) => v.botId === b.id).map((v) => ({ id: v.id, version: v.version, snapshot: assertScenarioDefinition(v.snapshot), author: v.author, changeSummary: v.changeSummary, sourceVersionId: v.sourceVersionId, createdAt: iso(v.createdAt) ?? "", isCurrent: v.id === b.publishedScenarioVersionId })),
-      pythonWorkspace: (() => { const row = pythonRows.find((item) => item.botId === b.id); return row ? { draftCode: row.draftCode, draftRequirements: row.draftRequirements, publishedCode: row.publishedCode, publishedRequirements: row.publishedRequirements, status: row.status as 'draft' | 'published', lastTestStatus: row.lastTestStatus, lastTestOutput: row.lastTestOutput, lastTestedAt: iso(row.lastTestedAt), versions: pythonVersionRows.filter((v) => v.botId === b.id).map((v) => ({ id: v.id, version: v.version, changeSummary: v.changeSummary, createdAt: iso(v.createdAt) ?? '', isCurrent: v.id === row.publishedVersionId })) } : null })(),
+      scenarioVersions: (versionsByBot.get(b.id) ?? []).map((v) => ({ id: v.id, version: v.version, snapshot: assertScenarioDefinition(v.snapshot), author: v.author, changeSummary: v.changeSummary, sourceVersionId: v.sourceVersionId, createdAt: iso(v.createdAt) ?? "", isCurrent: v.id === b.publishedScenarioVersionId })),
+      pythonWorkspace: (() => { const row = pythonByBot.get(b.id); return row ? { draftCode: row.draftCode, draftRequirements: row.draftRequirements, publishedCode: row.publishedCode, publishedRequirements: row.publishedRequirements, status: row.status as 'draft' | 'published', lastTestStatus: row.lastTestStatus, lastTestOutput: row.lastTestOutput, lastTestedAt: iso(row.lastTestedAt), versions: (pythonVersionsByBot.get(b.id) ?? []).map((v) => ({ id: v.id, version: v.version, changeSummary: v.changeSummary, createdAt: iso(v.createdAt) ?? '', isCurrent: v.id === row.publishedVersionId })) } : null })(),
       config: (() => { const stored = (b.config as Record<string, unknown>) ?? {}; const { proxySecret, passwordSecret, proxy, password, ...safe } = stored; return { ...safe, proxyConfigured: Boolean(proxySecret || proxy), passwordConfigured: Boolean(passwordSecret || password) } })(),
     }
   })

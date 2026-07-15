@@ -74,7 +74,7 @@ class Runner:
         delay = 2.0
         while not self.stop_event.is_set():
             try:
-                client.heartbeat(f"Windows {platform.release()} · Docker {docker_version}")
+                client.heartbeat(f"Windows {platform.release()} · Docker {docker_version}", VERSION)
                 if self.paused:
                     time.sleep(2)
                     continue
@@ -127,9 +127,15 @@ class Runner:
             logs.add("python.stdout", line)
 
         try:
+            logs.add("runner.prepare", "Подготовка одноразового sandbox", level="running")
             result = execute_python(run_id, code, requirements, self.cancel_event, send_log)
-            logs.flush()
             status = "cancelled" if result.cancelled else ("success" if result.exit_code == 0 else "failed")
+            logs.add(
+                "runner.complete",
+                "Sandbox завершён успешно" if status == "success" else (result.output[-1000:] or "Sandbox завершился с ошибкой"),
+                level="success" if status == "success" else "error",
+            )
+            logs.flush()
             client.complete_run(
                 run_id, lease, status=status,
                 success_count=1 if status == "success" else 0,
@@ -137,7 +143,19 @@ class Runner:
                 duration_ms=int((time.monotonic() - started) * 1000),
                 error=None if status == "success" else result.output[-1000:],
             )
+        except Exception as exc:
+            error = str(exc)[:1000] or exc.__class__.__name__
+            logs.add("runner.prepare", error, level="error")
+            logs.flush()
+            try:
+                client.complete_run(
+                    run_id, lease, status="failed", failed_count=1,
+                    duration_ms=int((time.monotonic() - started) * 1000), error=error,
+                )
+            except Exception as complete_error:
+                self.on_log(f"Не удалось завершить прогон: {str(complete_error)[:240]}")
         finally:
+            logs.flush()
             monitor_stop.set()
             monitor.join(timeout=2)
             self.on_state("online", "Готов к работе")

@@ -4,7 +4,7 @@ import { and, desc, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 import { db } from '@/lib/db'
-import { botRefs, bots, pythonVersions, pythonWorkspaces, runs, scenarioVersions, templates } from '@/lib/db/schema'
+import { aiCodeProposals, botRefs, bots, logSteps, notificationDeliveries, notifications, pythonVersions, pythonWorkspaces, runArtifacts, runAttempts, runs, scenarioVersions, scheduleFirings, schedules, templates } from '@/lib/db/schema'
 import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateAssetsFor, pythonTemplateFor } from '@/lib/python-templates'
 import { assertScenarioDefinition } from '@/lib/scenario/schema'
 import { encryptRuntimeSecret } from '@/lib/runtime-secrets'
@@ -93,7 +93,47 @@ export async function cancelRun(runId: string) {
   revalidatePath(`/bots/${run.botId}`); return { cancelled: true }
 }
 
-export async function updateBotStatus(botId: string, status: 'idle' | 'active' | 'paused' | 'error') { const { workspace } = await requireWorkspace(); await db.update(bots).set({ status, updatedAt: new Date() }).where(scopedBot(workspace.id, botId)); revalidatePath('/bots'); revalidatePath(`/bots/${botId}`) }
+export async function updateBotStatus(botId: string, status: 'idle' | 'active' | 'paused' | 'error') {
+  const { workspace } = await requireWorkspace()
+  const [bot] = await db.select({ id: bots.id }).from(bots).where(scopedBot(workspace.id, botId)).limit(1)
+  if (!bot) throw new Error('Бот не найден')
+  await db.update(bots).set({ status, updatedAt: new Date() }).where(scopedBot(workspace.id, botId))
+  revalidatePath('/bots')
+  revalidatePath(`/bots/${botId}`)
+  return { status }
+}
+
+export async function deleteBot(botId: string) {
+  const { workspace } = await requireWorkspace()
+  const [bot] = await db.select({ id: bots.id }).from(bots).where(scopedBot(workspace.id, botId)).limit(1)
+  if (!bot) throw new Error('Бот не найден')
+  const runRows = await db.select({ id: runs.id }).from(runs).where(and(eq(runs.botId, botId), eq(runs.workspaceId, workspace.id)))
+  const runIds = runRows.map((run) => run.id)
+  const scheduleRows = await db.select({ id: schedules.id }).from(schedules).where(and(eq(schedules.botId, botId), eq(schedules.workspaceId, workspace.id)))
+  const scheduleIds = scheduleRows.map((schedule) => schedule.id)
+  await db.transaction(async (tx) => {
+    for (const runId of runIds) {
+      const notificationRows = await tx.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.runId, runId), eq(notifications.workspaceId, workspace.id)))
+      for (const notification of notificationRows) await tx.delete(notificationDeliveries).where(and(eq(notificationDeliveries.notificationId, notification.id), eq(notificationDeliveries.workspaceId, workspace.id)))
+      await tx.delete(notifications).where(and(eq(notifications.runId, runId), eq(notifications.workspaceId, workspace.id)))
+      await tx.delete(logSteps).where(and(eq(logSteps.runId, runId), eq(logSteps.workspaceId, workspace.id)))
+      await tx.delete(runArtifacts).where(and(eq(runArtifacts.runId, runId), eq(runArtifacts.workspaceId, workspace.id)))
+      await tx.delete(runAttempts).where(and(eq(runAttempts.runId, runId), eq(runAttempts.workspaceId, workspace.id)))
+    }
+    for (const scheduleId of scheduleIds) await tx.delete(scheduleFirings).where(and(eq(scheduleFirings.scheduleId, scheduleId), eq(scheduleFirings.workspaceId, workspace.id)))
+    await tx.delete(runs).where(and(eq(runs.botId, botId), eq(runs.workspaceId, workspace.id)))
+    await tx.delete(schedules).where(and(eq(schedules.botId, botId), eq(schedules.workspaceId, workspace.id)))
+    await tx.delete(aiCodeProposals).where(and(eq(aiCodeProposals.botId, botId), eq(aiCodeProposals.workspaceId, workspace.id)))
+    await tx.delete(pythonVersions).where(and(eq(pythonVersions.botId, botId), eq(pythonVersions.workspaceId, workspace.id)))
+    await tx.delete(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, botId), eq(pythonWorkspaces.workspaceId, workspace.id)))
+    await tx.delete(scenarioVersions).where(and(eq(scenarioVersions.botId, botId), eq(scenarioVersions.workspaceId, workspace.id)))
+    await tx.delete(botRefs).where(and(eq(botRefs.botId, botId), eq(botRefs.workspaceId, workspace.id)))
+    await tx.delete(bots).where(scopedBot(workspace.id, botId))
+  })
+  revalidatePath('/bots')
+  revalidatePath('/')
+  return { deleted: true }
+}
 
 export interface UpdateBotSettingsInput { name: string; workers: number; config: { proxy?: string; clearProxy?: boolean; allowDirectFallback?: boolean; headless?: boolean; page_timeout?: number; otp_timeout?: number; action_delay_min?: number; action_delay_max?: number; password?: string; clearPassword?: boolean } }
 export async function updateBotSettings(botId: string, input: UpdateBotSettingsInput) {
