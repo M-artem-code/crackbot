@@ -10,7 +10,7 @@ import webbrowser
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+    QApplication, QHBoxLayout, QInputDialog, QLabel, QMainWindow, QMessageBox,
     QPushButton, QStyle, QSystemTrayIcon, QTextEdit, QVBoxLayout, QWidget,
 )
 
@@ -50,9 +50,11 @@ class RunnerWindow(QMainWindow):
         docker_button.clicked.connect(lambda: webbrowser.open(DOCKER_URL))
         dashboard_button = QPushButton("Открыть BotForge")
         dashboard_button.clicked.connect(lambda: webbrowser.open(server_url))
+        reconnect_button = QPushButton("Переподключить агента")
+        reconnect_button.clicked.connect(self.reconnect_agent)
 
         actions = QHBoxLayout()
-        for button in (self.pause_button, self.cancel_button, docker_button, dashboard_button):
+        for button in (self.pause_button, self.cancel_button, reconnect_button, docker_button, dashboard_button):
             actions.addWidget(button)
         layout = QVBoxLayout()
         layout.addWidget(self.status)
@@ -71,10 +73,13 @@ class RunnerWindow(QMainWindow):
         show_action.triggered.connect(self.showNormal)
         pause_action = QAction("Пауза / продолжить", self)
         pause_action.triggered.connect(self.toggle_pause)
+        reconnect_action = QAction("Переподключить агента", self)
+        reconnect_action.triggered.connect(self.reconnect_agent)
         exit_action = QAction("Выход", self)
         exit_action.triggered.connect(self.exit_runner)
         menu.addAction(show_action)
         menu.addAction(pause_action)
+        menu.addAction(reconnect_action)
         menu.addSeparator()
         menu.addAction(exit_action)
         self.tray.setContextMenu(menu)
@@ -109,6 +114,30 @@ class RunnerWindow(QMainWindow):
     def toggle_pause(self) -> None:
         self.runner.pause(not self.runner.paused)
         self.pause_button.setText("Продолжить" if self.runner.paused else "Пауза")
+
+    def reconnect_agent(self) -> None:
+        token, accepted = QInputDialog.getText(
+            self,
+            "Переподключить агента",
+            "Создайте код подключения в BotForge → Агенты и вставьте его сюда:",
+        )
+        if not accepted:
+            return
+        token = token.strip()
+        if not token:
+            QMessageBox.warning(self, "Код не указан", "Вставьте одноразовый код подключения вида pair_…")
+            return
+        try:
+            server_url = str(self.runner.config.get("serverUrl") or DEFAULT_SERVER)
+            self.runner.pair(token, server_url)
+        except Exception as exc:
+            QMessageBox.critical(self, "Не удалось переподключить", str(exc))
+            return
+        QMessageBox.information(
+            self,
+            "Агент подключён",
+            "Новый ключ сохранён в Windows Credential Manager. Runner продолжит работу без переустановки.",
+        )
 
     def closeEvent(self, event) -> None:  # noqa: N802
         event.ignore()

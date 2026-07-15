@@ -2,6 +2,8 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from windows_runner import Runner
+
 from dependency_policy import validate_requirements
 from docker_executor import execute_python
 from pairing import token_from_installer_name
@@ -30,6 +32,23 @@ class PairingFilenameTests(unittest.TestCase):
 
     def test_ignores_invalid_filename(self):
         self.assertIsNone(token_from_installer_name('BotForgeRunner.exe'))
+
+
+class RunnerReconnectTests(unittest.TestCase):
+    @patch('windows_runner.Runner._write_config')
+    @patch('windows_runner.save_agent_key')
+    @patch('windows_runner.exchange_pairing_token')
+    def test_pair_replaces_key_and_requests_live_reconnect(self, exchange, save_key, write_config):
+        exchange.return_value = {"apiKey": "agt_" + "a" * 40, "agentId": "agent_new"}
+        states = []
+        runner = Runner(lambda state, detail: states.append((state, detail)), lambda _: None)
+
+        runner.pair("pair_" + "b" * 43, "https://botforge.example")
+
+        save_key.assert_called_once_with("agt_" + "a" * 40)
+        write_config.assert_called_once_with("agent_new", "https://botforge.example")
+        self.assertTrue(runner.reconnect_event.is_set())
+        self.assertEqual(states[-1][0], "connecting")
 
 
 class DockerCommandTests(unittest.TestCase):

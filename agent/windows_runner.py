@@ -10,12 +10,12 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from api_client import CrackbotClient, StepBuffer
+from api_client import ApiError, CrackbotClient, StepBuffer
 from credential_store import load_agent_key, save_agent_key
 from docker_executor import cleanup_orphans, docker_status, execute_python
 from pairing import exchange_pairing_token
 
-VERSION = "0.1.0-beta.5"
+VERSION = "0.1.0-beta.6"
 DEFAULT_SERVER = os.environ.get("BOTFORGE_SERVER_URL", "http://localhost:3000").rstrip("/")
 CONFIG_DIR = Path(os.environ.get("LOCALAPPDATA", Path.home())) / "BotForge" / "Runner"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -27,6 +27,7 @@ class Runner:
         self.on_log = on_log
         self.stop_event = threading.Event()
         self.cancel_event = threading.Event()
+        self.reconnect_event = threading.Event()
         self.paused = False
         self.config = self._read_config()
 
@@ -46,7 +47,8 @@ class Runner:
         result = exchange_pairing_token(server_url, token, VERSION)
         save_agent_key(result["apiKey"])
         self._write_config(result["agentId"], server_url)
-        self.on_state("offline", "Привязка завершена")
+        self.reconnect_event.set()
+        self.on_state("connecting", "Новый агент подключён, обновляем соединение")
 
     def pause(self, value: bool) -> None:
         self.paused = value
@@ -57,39 +59,50 @@ class Runner:
 
     def stop(self) -> None:
         self.stop_event.set()
+        self.reconnect_event.set()
         self.cancel_current()
 
     def run_forever(self) -> None:
-        api_key = load_agent_key()
-        server_url = str(self.config.get("serverUrl") or DEFAULT_SERVER)
-        if not api_key:
-            self.on_state("unpaired", "Требуется подключение")
-            return
         ok, docker_version = docker_status()
         if not ok:
             self.on_state("docker_required", docker_version)
             return
         cleanup_orphans()
-        client = CrackbotClient(server_url, api_key)
-        delay = 2.0
+
         while not self.stop_event.is_set():
-            try:
-                client.heartbeat(f"Windows {platform.release()} · Docker {docker_version}", VERSION)
-                if self.paused:
-                    time.sleep(2)
-                    continue
-                self.on_state("online", "Готов к работе")
-                job = client.poll_job()
-                if not job:
-                    time.sleep(3)
-                    continue
-                self._execute_job(client, job)
-                delay = 2.0
-            except Exception as exc:
-                self.on_log(f"Связь с сервером: {str(exc)[:240]}")
-                self.on_state("offline", "Повторное подключение")
-                time.sleep(delay)
-                delay = min(delay * 1.7, 30.0)
+            api_key = load_agent_key()
+            server_url = str(self.config.get("serverUrl") or DEFAULT_SERVER)
+            if not api_key:
+                self.on_state("unpaired", "Откройте меню и выберите «Переподключить агента»")
+                self.reconnect_event.wait(1)
+                self.reconnect_event.clear()
+                continue
+
+            client = CrackbotClient(server_url, api_key)
+            delay = 2.0
+            self.reconnect_event.clear()
+            while not self.stop_event.is_set() and not self.reconnect_event.is_set():
+                try:
+                    client.heartbeat(f"Windows {platform.release()} · Docker {docker_version}", VERSION)
+                    if self.paused:
+                        self.stop_event.wait(2)
+                        continue
+                    self.on_state("online", "Готов к работе")
+                    job = client.poll_job()
+                    if not job:
+                        self.reconnect_event.wait(3)
+                        continue
+                    self._execute_job(client, job)
+                    delay = 2.0
+                except ApiError as exc:
+                    self.on_log(f"Связь с сервером: {str(exc)[:240]}")
+                    self.on_state("unpaired", "Ключ отключён. Нажмите «Переподключить агента» и вставьте новый код")
+                    self.reconnect_event.wait()
+                except Exception as exc:
+                    self.on_log(f"Связь с сервером: {str(exc)[:240]}")
+                    self.on_state("offline", "Повторное подключение")
+                    self.reconnect_event.wait(delay)
+                    delay = min(delay * 1.7, 30.0)
 
     def _execute_job(self, client: CrackbotClient, job: dict[str, object]) -> None:
         run_id = str(job.get("runId") or "")
