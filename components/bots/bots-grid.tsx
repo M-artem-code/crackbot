@@ -125,7 +125,7 @@ export function BotsGrid({ bots }: { bots: Bot[] }) {
           </EmptyHeader>
         </Empty>
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
           {filtered.map((bot) => (
             <Card key={bot.id} className="flex flex-col">
               <CardHeader>
@@ -134,7 +134,7 @@ export function BotsGrid({ bots }: { bots: Bot[] }) {
                     href={`/bots/${bot.id}`}
                     className="min-w-0 hover:underline"
                   >
-                    <span className="block truncate text-sm font-semibold">
+                    <span className="block truncate text-base font-semibold">
                       {bot.name}
                     </span>
                   </Link>
@@ -145,7 +145,7 @@ export function BotsGrid({ bots }: { bots: Bot[] }) {
                 </span>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-3">
-                <p className="line-clamp-2 text-xs text-muted-foreground">
+                <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
                   {bot.description}
                 </p>
                 <div className="grid grid-cols-3 gap-2 rounded-md border p-2.5">

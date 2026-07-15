@@ -52,9 +52,12 @@ export function AiScenarioStudio({ botId, workspace, onOpenPython }: { botId: st
   const [busy, setBusy] = React.useState<'propose' | 'apply' | 'reject' | null>(null)
   const [error, setError] = React.useState('')
   const { data: analysis, error: analysisError, isLoading, mutate } = useSWR(
-    workspace ? ['python-analysis', botId, workspace.draftCode] : null,
-    () => analyzePythonBot(botId),
-    { revalidateOnFocus: false, shouldRetryOnError: false },
+    workspace ? ['python-analysis', botId, workspace.draftCode.length, workspace.status] : null,
+    async () => {
+      const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Анализ занял слишком много времени')), 20_000))
+      return Promise.race([analyzePythonBot(botId), timeout])
+    },
+    { revalidateOnFocus: false, shouldRetryOnError: false, dedupingInterval: 60_000 },
   )
 
   if (!workspace) {
@@ -104,6 +107,12 @@ export function AiScenarioStudio({ botId, workspace, onOpenPython }: { botId: st
           <CardContent>
             {isLoading ? <div className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner />Анализируем код...</div> : analysisError ? (
               <div className="flex flex-col gap-3"><p className="text-sm text-destructive">Не удалось проанализировать bot.py.</p><Button size="sm" variant="outline" onClick={() => mutate()}>Повторить анализ</Button></div>
+            ) : steps.length === 0 ? (
+              <div className="flex flex-col gap-3 rounded-lg border border-dashed p-4">
+                <p className="text-sm font-medium">Шаги не найдены</p>
+                <p className="text-sm leading-relaxed text-muted-foreground">Проверьте, что bot.py содержит функции сценария, или повторите анализ.</p>
+                <Button size="sm" variant="outline" onClick={() => mutate()}>Повторить анализ</Button>
+              </div>
             ) : (
               <ScrollArea className="h-110 pr-3">
                 <div className="flex flex-col gap-2">
