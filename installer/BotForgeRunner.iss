@@ -1,5 +1,5 @@
 #define MyAppName "BotForge Runner Beta"
-#define MyAppVersion "0.1.0-beta.4"
+#define MyAppVersion "0.1.0-beta.5"
 #define MyAppExeName "BotForgeRunner.exe"
 #ifndef AppServerUrl
   #define AppServerUrl "https://botforge.example"

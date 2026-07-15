@@ -7,6 +7,8 @@ import re
 MAX_REQUIREMENTS_BYTES = 8_192
 ALLOWED_PACKAGES = {
     "requests",
+    "rich",
+    "nodriver",
     "httpx",
     "pydantic",
     "python-telegram-bot",

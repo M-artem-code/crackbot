@@ -5,6 +5,7 @@ import { revalidatePath } from 'next/cache'
 
 import { db } from '@/lib/db'
 import { botRefs, bots, pythonVersions, pythonWorkspaces, runs, templates } from '@/lib/db/schema'
+import { validatePythonRequirements } from '@/lib/python-requirements'
 import { DEFAULT_PYTHON_REQUIREMENTS, pythonTemplateAssetsFor, pythonTemplateFor } from '@/lib/python-templates'
 import { requireWorkspace } from '@/lib/workspace'
 
@@ -16,7 +17,7 @@ function validateFiles(code: string, requirements: string) {
   if (!code.trim()) throw new Error('bot.py не может быть пустым')
   if (Buffer.byteLength(code) > MAX_CODE_BYTES) throw new Error('bot.py превышает лимит 250 KB')
   if (Buffer.byteLength(requirements) > MAX_REQUIREMENTS_BYTES) throw new Error('requirements.txt превышает лимит 32 KB')
-  if (requirements.includes('-e ') || requirements.includes('--editable')) throw new Error('Editable-зависимости не поддерживаются')
+  validatePythonRequirements(requirements)
 }
 
 async function ownedBot(workspaceId: string, botId: string) {

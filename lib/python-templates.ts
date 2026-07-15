@@ -6,9 +6,9 @@ import { join } from 'node:path'
 const TEMPLATE_ROOT = join(process.cwd(), 'agent', 'templates')
 
 const requirements = [
-  'nodriver>=0.48.1,<0.49',
-  'requests>=2.32,<3',
-  'rich>=13.9,<14',
+  'nodriver==0.48.1',
+  'requests==2.32.3',
+  'rich==13.9.4',
 ].join('\n') + '\n'
 
 export const DEFAULT_PYTHON_REQUIREMENTS = requirements
