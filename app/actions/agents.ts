@@ -1,7 +1,7 @@
 'use server'
 
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import { revalidatePath } from 'next/cache'
 
 import { db } from '@/lib/db'
@@ -17,16 +17,20 @@ export interface CreateAgentInput { name: string; os?: string }
 async function issuePairingToken(agentId: string, workspaceId: string, userId: string) {
   const token = `pair_${randomBytes(32).toString('base64url')}`
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000)
-  await db.transaction(async (tx) => {
-    await tx.update(agentPairingTokens).set({ usedAt: new Date() }).where(and(eq(agentPairingTokens.agentId, agentId), eq(agentPairingTokens.workspaceId, workspaceId), isNull(agentPairingTokens.usedAt)))
-    await tx.insert(agentPairingTokens).values({
-      id: `pair_${randomUUID().replaceAll('-', '')}`,
-      agentId,
-      workspaceId,
-      tokenHash: hashApiKey(token),
-      expiresAt,
-      createdBy: userId,
-    })
+  // NOTE: we intentionally do NOT invalidate previously issued (unused) tokens here.
+  // A pairing code is shown to the user only once (it is stored hashed), so any time the
+  // setup dialog is opened a fresh code is generated. Eagerly marking older codes as used
+  // silently invalidated a code the user had already copied into the runner, producing the
+  // confusing "код истёк или уже использован" error. Codes are single-use (the /api/agent/pair
+  // route sets used_at on success) and expire after 10 minutes, so letting several short-lived
+  // codes coexist is safe and removes the trap: any code generated in the last 10 minutes works.
+  await db.insert(agentPairingTokens).values({
+    id: `pair_${randomUUID().replaceAll('-', '')}`,
+    agentId,
+    workspaceId,
+    tokenHash: hashApiKey(token),
+    expiresAt,
+    createdBy: userId,
   })
   return { token, expiresAt: expiresAt.toISOString() }
 }
