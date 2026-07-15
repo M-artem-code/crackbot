@@ -6,7 +6,7 @@ import useSWR from 'swr'
 
 import { useRouter } from 'next/navigation'
 
-import { cancelRun, enqueueRun } from '@/app/actions/bots'
+import { cancelRun, runBot } from '@/app/actions/bots'
 import { PageHeader } from '@/components/page-header'
 import { RunLog } from '@/components/bots/run-log'
 import { RunReport } from '@/components/bots/run-report'
@@ -92,7 +92,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
     setStartError(null)
     setActiveTab('logs')
     try {
-      const { runId } = await enqueueRun(bot.id)
+      const { runId } = await runBot(bot.id)
       setActiveRunId(runId)
       setSelectedRun(null)
     } catch (error) {
@@ -143,7 +143,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
                 ) : (
                   <PlayIcon data-icon="inline-start" />
                 )}
-                {isStarting ? 'Ставим в очередь...' : 'Запустить проверку'}
+                {isStarting ? 'Запускаем...' : 'Запустить проверку'}
               </Button>
             )}
           </>

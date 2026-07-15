@@ -10,7 +10,6 @@ import { z } from 'zod'
 import { getActiveAiProvider } from '@/lib/ai-provider'
 import { db } from '@/lib/db'
 import { aiCodeProposals, bots, pythonWorkspaces } from '@/lib/db/schema'
-import { requireWorkspace } from '@/lib/workspace'
 const MAX_REQUEST = 4_000
 const MAX_CODE = 250_000
 const MAX_REQUIREMENTS = 32_000
@@ -61,21 +60,20 @@ function assertPythonFiles(code: string, requirements: string) {
 }
 
 async function ownedWorkspace(botId: string) {
-  const { workspace } = await requireWorkspace()
-  const [bot] = await db.select({ id: bots.id }).from(bots).where(and(eq(bots.id, botId), eq(bots.workspaceId, workspace.id))).limit(1)
+  const [bot] = await db.select({ id: bots.id }).from(bots).where(eq(bots.id, botId)).limit(1)
   if (!bot) throw new Error('Бот не найден')
-  const [python] = await db.select().from(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, botId), eq(pythonWorkspaces.workspaceId, workspace.id))).limit(1)
+  const [python] = await db.select().from(pythonWorkspaces).where(eq(pythonWorkspaces.botId, botId)).limit(1)
   if (!python) throw new Error('Сначала откройте исходный код бота')
-  return { workspace, python }
+  return { python }
 }
 
-async function assertProposalRateLimit(workspaceId: string, botId: string) {
+async function assertProposalRateLimit(botId: string) {
   const hourAgo = new Date(Date.now() - 60 * 60 * 1_000)
   const [[recent], [pending]] = await Promise.all([
-    db.select({ value: count() }).from(aiCodeProposals).where(and(eq(aiCodeProposals.workspaceId, workspaceId), gte(aiCodeProposals.createdAt, hourAgo))),
-    db.select({ value: count() }).from(aiCodeProposals).where(and(eq(aiCodeProposals.workspaceId, workspaceId), eq(aiCodeProposals.botId, botId), eq(aiCodeProposals.status, 'pending'))),
+    db.select({ value: count() }).from(aiCodeProposals).where(gte(aiCodeProposals.createdAt, hourAgo)),
+    db.select({ value: count() }).from(aiCodeProposals).where(and(eq(aiCodeProposals.botId, botId), eq(aiCodeProposals.status, 'pending'))),
   ])
-  if (Number(recent?.value ?? 0) >= MAX_PROPOSALS_PER_HOUR) throw new Error('Лимит AI Studio исчерпан: доступно до 10 предложений в час для workspace')
+  if (Number(recent?.value ?? 0) >= MAX_PROPOSALS_PER_HOUR) throw new Error('Лимит AI Studio исчерпан: доступно до 10 предложений в час')
   if (Number(pending?.value ?? 0) >= MAX_PENDING_PROPOSALS) throw new Error('Сначала примените или отклоните одно из трёх ожидающих AI-предложений')
 }
 
@@ -100,8 +98,8 @@ async function generateStructured<T>(operation: () => Promise<{ text: string }>,
 }
 
 export async function analyzePythonBot(botId: string) {
-  const { workspace, python } = await ownedWorkspace(botId)
-  const { model } = await getActiveAiProvider(workspace.id)
+  const { python } = await ownedWorkspace(botId)
+  const { model } = await getActiveAiProvider()
   const safeCode = redactSecrets(python.draftCode)
   return generateStructured(() => generateText({
     model,
@@ -115,9 +113,9 @@ export async function proposePythonChange(botId: string, request: string, select
   if (!cleanRequest) throw new Error('Опишите изменение')
   if (cleanRequest.length > MAX_REQUEST) throw new Error('Запрос превышает 4000 символов')
   if (selectedStepId && selectedStepId.length > 80) throw new Error('Некорректный идентификатор шага')
-  const { workspace, python } = await ownedWorkspace(botId)
-  const { config: aiConfig, model } = await getActiveAiProvider(workspace.id)
-  await assertProposalRateLimit(workspace.id, botId)
+  const { python } = await ownedWorkspace(botId)
+  const { config: aiConfig, model } = await getActiveAiProvider()
+  await assertProposalRateLimit(botId)
   assertPythonFiles(python.draftCode, python.draftRequirements)
   const safeCode = redactSecrets(python.draftCode)
   const safeRequirements = redactSecrets(python.draftRequirements)
@@ -130,7 +128,6 @@ export async function proposePythonChange(botId: string, request: string, select
   const id = proposalId()
   await db.insert(aiCodeProposals).values({
     id,
-    workspaceId: workspace.id,
     botId,
     baseCodeHash: hash(python.draftCode, python.draftRequirements),
     request: cleanRequest,
@@ -147,32 +144,32 @@ export async function proposePythonChange(botId: string, request: string, select
 }
 
 export async function getLatestAiProposal(botId: string) {
-  const { workspace } = await ownedWorkspace(botId)
-  const [proposal] = await db.select().from(aiCodeProposals).where(and(eq(aiCodeProposals.botId, botId), eq(aiCodeProposals.workspaceId, workspace.id))).orderBy(desc(aiCodeProposals.createdAt)).limit(1)
+  await ownedWorkspace(botId)
+  const [proposal] = await db.select().from(aiCodeProposals).where(eq(aiCodeProposals.botId, botId)).orderBy(desc(aiCodeProposals.createdAt)).limit(1)
   return proposal ?? null
 }
 
 export async function applyAiProposal(botId: string, id: string) {
-  const { workspace, python } = await ownedWorkspace(botId)
-  const [proposal] = await db.select().from(aiCodeProposals).where(and(eq(aiCodeProposals.id, id), eq(aiCodeProposals.botId, botId), eq(aiCodeProposals.workspaceId, workspace.id))).limit(1)
+  const { python } = await ownedWorkspace(botId)
+  const [proposal] = await db.select().from(aiCodeProposals).where(and(eq(aiCodeProposals.id, id), eq(aiCodeProposals.botId, botId))).limit(1)
   if (!proposal || proposal.status !== 'pending') throw new Error('AI-предложение недоступно')
   if (proposal.baseCodeHash !== hash(python.draftCode, python.draftRequirements)) {
-    await db.update(aiCodeProposals).set({ status: 'stale', updatedAt: new Date() }).where(and(eq(aiCodeProposals.id, id), eq(aiCodeProposals.workspaceId, workspace.id)))
+    await db.update(aiCodeProposals).set({ status: 'stale', updatedAt: new Date() }).where(eq(aiCodeProposals.id, id))
     throw new Error('Черновик изменился после создания diff. Сформируйте предложение заново')
   }
   assertPythonFiles(proposal.proposedCode, proposal.proposedRequirements)
   await db.transaction(async (tx) => {
-    const [claimed] = await tx.update(aiCodeProposals).set({ status: 'applied', appliedAt: new Date(), updatedAt: new Date() }).where(and(eq(aiCodeProposals.id, id), eq(aiCodeProposals.workspaceId, workspace.id), eq(aiCodeProposals.status, 'pending'))).returning({ id: aiCodeProposals.id })
+    const [claimed] = await tx.update(aiCodeProposals).set({ status: 'applied', appliedAt: new Date(), updatedAt: new Date() }).where(and(eq(aiCodeProposals.id, id), eq(aiCodeProposals.status, 'pending'))).returning({ id: aiCodeProposals.id })
     if (!claimed) throw new Error('AI-предложение уже обработано')
-    await tx.update(pythonWorkspaces).set({ draftCode: proposal.proposedCode, draftRequirements: proposal.proposedRequirements, status: 'draft', lastTestStatus: null, lastTestOutput: '', lastTestedAt: null, updatedAt: new Date() }).where(and(eq(pythonWorkspaces.botId, botId), eq(pythonWorkspaces.workspaceId, workspace.id)))
+    await tx.update(pythonWorkspaces).set({ draftCode: proposal.proposedCode, draftRequirements: proposal.proposedRequirements, status: 'draft', lastTestStatus: null, lastTestOutput: '', lastTestedAt: null, updatedAt: new Date() }).where(eq(pythonWorkspaces.botId, botId))
   })
   revalidatePath(`/bots/${botId}`)
   return { ok: true as const }
 }
 
 export async function rejectAiProposal(botId: string, id: string) {
-  const { workspace } = await ownedWorkspace(botId)
-  const [rejected] = await db.update(aiCodeProposals).set({ status: 'rejected', updatedAt: new Date() }).where(and(eq(aiCodeProposals.id, id), eq(aiCodeProposals.botId, botId), eq(aiCodeProposals.workspaceId, workspace.id), eq(aiCodeProposals.status, 'pending'))).returning({ id: aiCodeProposals.id })
+  await ownedWorkspace(botId)
+  const [rejected] = await db.update(aiCodeProposals).set({ status: 'rejected', updatedAt: new Date() }).where(and(eq(aiCodeProposals.id, id), eq(aiCodeProposals.botId, botId), eq(aiCodeProposals.status, 'pending'))).returning({ id: aiCodeProposals.id })
   if (!rejected) throw new Error('AI-предложение недоступно или уже обработано')
   revalidatePath(`/bots/${botId}`)
   return { ok: true as const }

@@ -1,10 +1,10 @@
 import 'server-only'
 
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
-import { and, eq } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 
 import { db } from '@/lib/db'
-import { workspaceAiProviders } from '@/lib/db/schema'
+import { aiProviders } from '@/lib/db/schema'
 import { decryptRuntimeSecret } from '@/lib/runtime-secrets'
 
 export type AiProviderSummary = {
@@ -33,7 +33,7 @@ export function providerModel(config: { name: string; baseUrl: string; modelId: 
   const apiKey = decryptRuntimeSecret(config.encryptedApiKey)
   if (!apiKey) throw new Error('Не удалось расшифровать API-ключ. Сохраните ключ повторно')
   const provider = createOpenAICompatible({
-    name: `workspace-${config.name.toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'ai'}`,
+    name: `provider-${config.name.toLowerCase().replace(/[^a-z0-9-]/g, '-') || 'ai'}`,
     baseURL: normalizeProviderBaseUrl(config.baseUrl),
     apiKey,
     supportsStructuredOutputs: true,
@@ -41,13 +41,13 @@ export function providerModel(config: { name: string; baseUrl: string; modelId: 
   return provider.chatModel(config.modelId)
 }
 
-export async function getActiveAiProvider(workspaceId: string) {
-  const [config] = await db.select().from(workspaceAiProviders).where(and(eq(workspaceAiProviders.workspaceId, workspaceId), eq(workspaceAiProviders.isActive, true))).limit(1)
+export async function getActiveAiProvider() {
+  const [config] = await db.select().from(aiProviders).where(eq(aiProviders.isActive, true)).limit(1)
   if (!config) throw new Error('AI-провайдер не настроен. Откройте «Настройки AI» и подключите свой API-ключ')
   return { config, model: providerModel(config) }
 }
 
-export function toProviderSummary(row: typeof workspaceAiProviders.$inferSelect): AiProviderSummary {
+export function toProviderSummary(row: typeof aiProviders.$inferSelect): AiProviderSummary {
   return {
     id: row.id,
     name: row.name,

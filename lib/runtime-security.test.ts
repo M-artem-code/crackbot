@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { decryptRuntimeSecret, encryptRuntimeSecret } from './runtime-secrets'
-import { hashLeaseToken, isAgentCompatible, issueLeaseToken, leaseTokenFromRequest } from './run-leases'
 
 const originalRuntimeKey = process.env.RUNTIME_SECRETS_KEY
 const originalAuthSecret = process.env.BETTER_AUTH_SECRET
@@ -42,22 +41,5 @@ describe('runtime secrets', () => {
     delete process.env.RUNTIME_SECRETS_KEY
     delete process.env.BETTER_AUTH_SECRET
     expect(() => encryptRuntimeSecret('secret')).toThrow(/RUNTIME_SECRETS_KEY/)
-  })
-})
-
-describe('run leases', () => {
-  it('issues high-entropy tokens and stable hashes', () => {
-    const first = issueLeaseToken()
-    const second = issueLeaseToken()
-    expect(first.token).not.toBe(second.token)
-    expect(first.hash).toBe(hashLeaseToken(first.token))
-    expect(first.hash).toMatch(/^[a-f0-9]{64}$/)
-  })
-
-  it('reads trimmed lease headers and rejects old protocols', () => {
-    const request = new Request('https://example.test', { headers: { 'x-run-lease': '  lease-token  ' } })
-    expect(leaseTokenFromRequest(request)).toBe('lease-token')
-    expect(isAgentCompatible({ id: 'a', workspaceId: 'w', protocolVersion: 2 })).toBe(true)
-    expect(isAgentCompatible({ id: 'a', workspaceId: 'w', protocolVersion: 1 })).toBe(false)
   })
 })
