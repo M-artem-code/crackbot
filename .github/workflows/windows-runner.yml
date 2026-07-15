@@ -38,7 +38,9 @@ jobs:
         env:
           BOTFORGE_SERVER_URL: ${{ vars.BOTFORGE_SERVER_URL }}
         run: |
-          if (-not $env:BOTFORGE_SERVER_URL) { throw 'Repository variable BOTFORGE_SERVER_URL is required' }
+          if (-not $env:BOTFORGE_SERVER_URL) { $env:BOTFORGE_SERVER_URL = 'https://crackbot.vercel.app' }
+          if (-not [Uri]::IsWellFormedUriString($env:BOTFORGE_SERVER_URL, [UriKind]::Absolute)) { throw 'BOTFORGE_SERVER_URL must be an absolute HTTPS URL' }
+          if (-not $env:BOTFORGE_SERVER_URL.StartsWith('https://')) { throw 'BOTFORGE_SERVER_URL must use HTTPS' }
           & 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe' "/DAppServerUrl=$env:BOTFORGE_SERVER_URL" installer\BotForgeRunner.iss
       - name: Generate SHA-256 checksum
         shell: pwsh
