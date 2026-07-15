@@ -47,12 +47,21 @@ export async function getBots(): Promise<Bot[]> {
     db.select().from(pythonWorkspaces).where(eq(pythonWorkspaces.workspaceId, scope)),
     db.select().from(pythonVersions).where(eq(pythonVersions.workspaceId, scope)).orderBy(desc(pythonVersions.version)),
   ])
+  const groupByBotId = <T extends { botId: string }>(rows: T[]) => {
+    const grouped = new Map<string, T[]>()
+    for (const row of rows) {
+      const group = grouped.get(row.botId)
+      if (group) group.push(row)
+      else grouped.set(row.botId, [row])
+    }
+    return grouped
+  }
   const tplById = new Map(tplRows.map((t) => [t.id, t]))
-  const runsByBot = Map.groupBy(runRows, (row) => row.botId)
-  const refsByBot = Map.groupBy(refRows, (row) => row.botId)
-  const versionsByBot = Map.groupBy(versionRows, (row) => row.botId)
+  const runsByBot = groupByBotId(runRows)
+  const refsByBot = groupByBotId(refRows)
+  const versionsByBot = groupByBotId(versionRows)
   const pythonByBot = new Map(pythonRows.map((row) => [row.botId, row]))
-  const pythonVersionsByBot = Map.groupBy(pythonVersionRows, (row) => row.botId)
+  const pythonVersionsByBot = groupByBotId(pythonVersionRows)
   return botRows.map((b) => {
     const tpl = tplById.get(b.templateId)
     const botRuns = runsByBot.get(b.id) ?? []

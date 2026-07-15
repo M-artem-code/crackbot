@@ -126,7 +126,7 @@ export async function deleteBot(botId: string) {
     await tx.delete(aiCodeProposals).where(and(eq(aiCodeProposals.botId, botId), eq(aiCodeProposals.workspaceId, workspace.id)))
     await tx.delete(pythonVersions).where(and(eq(pythonVersions.botId, botId), eq(pythonVersions.workspaceId, workspace.id)))
     await tx.delete(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, botId), eq(pythonWorkspaces.workspaceId, workspace.id)))
-    await tx.delete(scenarioVersions).where(and(eq(scenarioVersions.botId, botId), eq(scenarioVersions.workspaceId, workspace.id)))
+    // Published scenario versions are an immutable audit log and intentionally remain orphaned.
     await tx.delete(botRefs).where(and(eq(botRefs.botId, botId), eq(botRefs.workspaceId, workspace.id)))
     await tx.delete(bots).where(scopedBot(workspace.id, botId))
   })
