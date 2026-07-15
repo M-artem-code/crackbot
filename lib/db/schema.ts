@@ -351,6 +351,17 @@ export const aiCodeProposals = pgTable("ai_code_proposals", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 })
 
+export const agentPairingTokens = pgTable("agent_pairing_tokens", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull(),
+  workspaceId: text("workspace_id").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  createdBy: text("created_by").notNull(),
+})
+
 export const agents = pgTable("agents", {
   id: text("id").primaryKey(),
   workspaceId: text("workspace_id"),
@@ -362,6 +373,8 @@ export const agents = pgTable("agents", {
   os: text("os").notNull().default(""),
   protocolVersion: integer("protocol_version").notNull().default(2),
   capabilities: jsonb("capabilities").notNull().default([]),
+  runnerVersion: text("runner_version"),
+  dockerReady: boolean("docker_ready").notNull().default(false),
   status: text("status").notNull().default("offline"),
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -381,6 +394,7 @@ export type PythonWorkspace = typeof pythonWorkspaces.$inferSelect
 export type PythonVersion = typeof pythonVersions.$inferSelect
 export type AiCodeProposal = typeof aiCodeProposals.$inferSelect
 export type Agent = typeof agents.$inferSelect
+export type AgentPairingToken = typeof agentPairingTokens.$inferSelect
 export type Schedule = typeof schedules.$inferSelect
 export type ScheduleFiring = typeof scheduleFirings.$inferSelect
 export type Notification = typeof notifications.$inferSelect

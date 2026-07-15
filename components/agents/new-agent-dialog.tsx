@@ -23,25 +23,25 @@ import { ApiKeyDialog } from '@/components/agents/api-key-dialog'
 export function NewAgentDialog() {
   const [open, setOpen] = React.useState(false)
   const [name, setName] = React.useState('')
-  const [os, setOs] = React.useState('')
   const [error, setError] = React.useState<string | null>(null)
   const [pending, startTransition] = React.useTransition()
 
-  const [createdKey, setCreatedKey] = React.useState<string | null>(null)
+  const [pairingToken, setPairingToken] = React.useState<string | null>(null)
+  const [pairingExpiresAt, setPairingExpiresAt] = React.useState<string | null>(null)
   const [createdName, setCreatedName] = React.useState('')
-  const [keyDialogOpen, setKeyDialogOpen] = React.useState(false)
+  const [setupOpen, setSetupOpen] = React.useState(false)
 
   function submit() {
     setError(null)
     startTransition(async () => {
       try {
-        const res = await createAgent({ name, os: os || undefined })
-        setCreatedKey(res.apiKey)
+        const res = await createAgent({ name, os: 'Windows 10/11' })
+        setPairingToken(res.pairingToken)
+        setPairingExpiresAt(res.pairingExpiresAt)
         setCreatedName(name.trim())
         setOpen(false)
         setName('')
-        setOs('')
-        setKeyDialogOpen(true)
+        setSetupOpen(true)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Не удалось создать агента')
       }
@@ -59,8 +59,7 @@ export function NewAgentDialog() {
           <DialogHeader>
             <DialogTitle>Новый агент-раннер</DialogTitle>
             <DialogDescription>
-              Агент — это машина, которая забирает задания и запускает ботов. После создания
-              вы получите API-ключ для подключения.
+              Добавьте Windows 10/11 компьютер для безопасного запуска bot.py в Docker. После создания откроется пошаговая установка.
             </DialogDescription>
           </DialogHeader>
 
@@ -73,17 +72,6 @@ export function NewAgentDialog() {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoFocus
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="agent-os">
-                ОС <span className="font-normal text-muted-foreground">(необязательно)</span>
-              </Label>
-              <Input
-                id="agent-os"
-                placeholder="напр. macOS 15 / Ubuntu 24.04"
-                value={os}
-                onChange={(e) => setOs(e.target.value)}
               />
             </div>
             {error && <p className="text-xs text-destructive">{error}</p>}

@@ -4,8 +4,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 
 import { authenticateAgent, unauthorized } from '@/lib/agent-auth'
 import { db } from '@/lib/db'
-import { botRefs, bots, runs, templates } from '@/lib/db/schema'
-import { decryptRuntimeSecret } from '@/lib/runtime-secrets'
+import { botRefs, bots, pythonWorkspaces, runs, templates } from '@/lib/db/schema'
 import { AGENT_PROTOCOL_VERSION, isAgentCompatible, issueLeaseToken, LEASE_TTL_SECONDS } from '@/lib/run-leases'
 
 export const dynamic = 'force-dynamic'
@@ -25,6 +24,13 @@ export async function GET(req: Request) {
       WHERE status = 'queued'
         AND workspace_id = ${agent.workspaceId}
         AND available_at <= now()
+        AND EXISTS (
+          SELECT 1 FROM python_workspaces pw
+          WHERE pw.bot_id = runs.bot_id
+            AND pw.workspace_id = runs.workspace_id
+            AND pw.status = 'published'
+            AND length(pw.published_code) > 0
+        )
       ORDER BY available_at ASC, created_at ASC
       LIMIT 1
       FOR UPDATE SKIP LOCKED
@@ -49,16 +55,12 @@ export async function GET(req: Request) {
   if (!run) return Response.json({ job: null })
   const [botRow] = await db.select().from(bots).where(and(eq(bots.id, run.botId), eq(bots.workspaceId, agent.workspaceId))).limit(1)
   const [tplRow] = botRow ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1) : []
+  const [pythonWorkspace] = await db.select({ code: pythonWorkspaces.publishedCode, requirements: pythonWorkspaces.publishedRequirements }).from(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, run.botId), eq(pythonWorkspaces.workspaceId, agent.workspaceId), eq(pythonWorkspaces.status, 'published'))).limit(1)
+  if (!pythonWorkspace?.code) return Response.json({ error: 'Python bot is not published' }, { status: 409 })
   const targetRows = await db.select().from(botRefs).where(and(eq(botRefs.botId, run.botId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.status, 'active'), sql`${botRefs.successCount} < ${botRefs.successLimit}`)).orderBy(asc(botRefs.position), asc(botRefs.id))
   const storedConfig = (botRow?.config && typeof botRow.config === 'object' ? botRow.config : {}) as Record<string, unknown>
-  const { proxySecret, passwordSecret, proxy: legacyProxy, password: legacyPassword, ...publicConfig } = storedConfig
-  const runtimeProxy = decryptRuntimeSecret(proxySecret) ?? (typeof legacyProxy === 'string' ? legacyProxy : undefined)
-  const runtimePassword = decryptRuntimeSecret(passwordSecret) ?? (typeof legacyPassword === 'string' ? legacyPassword : undefined)
-  const runtimeConfig = {
-    ...publicConfig,
-    ...(runtimeProxy ? { runtimeProxy } : {}),
-    ...(runtimePassword ? { runtimePassword } : {}),
-  }
+  const blockedConfigKeys = new Set(['proxySecret', 'passwordSecret', 'proxy', 'password'])
+  const publicConfig = Object.fromEntries(Object.entries(storedConfig).filter(([key]) => !blockedConfigKeys.has(key)))
 
   return Response.json({
     job: {
@@ -67,8 +69,14 @@ export async function GET(req: Request) {
       leaseToken: lease.token,
       leaseExpiresInSeconds: LEASE_TTL_SECONDS,
       protocolVersion: AGENT_PROTOCOL_VERSION,
-      scenario: run.scenarioSnapshot,
-      bot: botRow ? { id: botRow.id, name: botRow.name, targetUrl: botRow.targetUrl, workers: botRow.workers, config: runtimeConfig } : null,
+      python: {
+        code: pythonWorkspace.code,
+        requirements: pythonWorkspace.requirements,
+        timeoutSeconds: 900,
+        limits: { cpus: 1, memoryMb: 512, pids: 256, outputBytes: 1_000_000 },
+        internetAccess: true,
+      },
+      bot: botRow ? { id: botRow.id, name: botRow.name, targetUrl: botRow.targetUrl, workers: botRow.workers, config: publicConfig } : null,
       template: tplRow ? { slug: tplRow.slug, engine: tplRow.engine, flowType: tplRow.flowType, fields: tplRow.fields, defaultConfig: tplRow.defaultConfig, scenarioSteps: tplRow.scenarioSteps } : null,
       targets: targetRows.map((target) => ({ id: target.id, url: target.url, label: target.label, position: target.position, successLimit: target.successLimit, successCount: target.successCount, remaining: Math.max(0, target.successLimit - target.successCount) })),
     },

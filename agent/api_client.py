@@ -65,7 +65,7 @@ class CrackbotClient:
 
     def heartbeat(self, os_label: str) -> Dict[str, Any]:
         """Сообщает серверу, что агент жив, и передаёт метку ОС."""
-        return self._post("/api/agent/heartbeat", {"os": os_label, "protocolVersion": 2, "capabilities": ["leases", "artifacts", "cancellation"]})
+        return self._post("/api/agent/heartbeat", {"os": os_label, "protocolVersion": 2, "capabilities": ["python-docker-v1", "leases", "cancellation"], "runnerVersion": "0.1.0-beta.1"})
 
     def poll_job(self) -> Optional[Dict[str, Any]]:
         """Пытается захватить одно задание. Возвращает job или None."""
