@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { DatabaseIcon, PlayIcon, SquareIcon } from 'lucide-react'
+import { AlertTriangleIcon, DatabaseIcon, PlayIcon, SquareIcon } from 'lucide-react'
 import useSWR from 'swr'
 
 import { useRouter } from 'next/navigation'
@@ -11,6 +11,7 @@ import { PageHeader } from '@/components/page-header'
 import { RunLog } from '@/components/bots/run-log'
 import { RunReport } from '@/components/bots/run-report'
 import { BotStatusBadge, RunStatusBadge } from '@/components/status-badge'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -55,6 +56,7 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
   )
   const [isStarting, setIsStarting] = React.useState(false)
   const [isCancelling, setIsCancelling] = React.useState(false)
+  const [startError, setStartError] = React.useState<string | null>(null)
   const [selectedRun, setSelectedRun] = React.useState<Run | null>(
     botRuns[0] ?? null,
   )
@@ -83,11 +85,15 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
   async function startLiveRun() {
     if (isRunning || isStarting) return
     setIsStarting(true)
+    setStartError(null)
     setActiveTab('logs')
     try {
       const { runId } = await enqueueRun(bot.id)
       setActiveRunId(runId)
       setSelectedRun(null)
+    } catch (error) {
+      setStartError(error instanceof Error ? error.message : 'Не удалось запустить бота')
+      setActiveTab('overview')
     } finally {
       setIsStarting(false)
     }
@@ -140,6 +146,13 @@ export function BotDetail({ bot, runs: botRuns }: { bot: Bot; runs: Run[] }) {
         }
       />
       <main className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
+        {startError ? (
+          <Alert variant="destructive">
+            <AlertTriangleIcon />
+            <AlertTitle>Бот не запущен</AlertTitle>
+            <AlertDescription>{startError}</AlertDescription>
+          </Alert>
+        ) : null}
         <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as string)}>
           <TabsList>
             <TabsTrigger value="overview">Обзор</TabsTrigger>

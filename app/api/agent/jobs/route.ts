@@ -5,6 +5,7 @@ import { and, asc, eq, sql } from 'drizzle-orm'
 import { authenticateAgent, unauthorized } from '@/lib/agent-auth'
 import { db } from '@/lib/db'
 import { botRefs, bots, pythonWorkspaces, runs, templates } from '@/lib/db/schema'
+import { selectPythonJobPayload } from '@/lib/python-job-payload'
 import { AGENT_PROTOCOL_VERSION, isAgentCompatible, issueLeaseToken, LEASE_TTL_SECONDS } from '@/lib/run-leases'
 
 export const dynamic = 'force-dynamic'
@@ -28,7 +29,6 @@ export async function GET(req: Request) {
           SELECT 1 FROM python_workspaces pw
           WHERE pw.bot_id = runs.bot_id
             AND pw.workspace_id = runs.workspace_id
-            AND pw.status = 'published'
             AND length(pw.published_code) > 0
         )
       ORDER BY available_at ASC, created_at ASC
@@ -55,8 +55,9 @@ export async function GET(req: Request) {
   if (!run) return Response.json({ job: null })
   const [botRow] = await db.select().from(bots).where(and(eq(bots.id, run.botId), eq(bots.workspaceId, agent.workspaceId))).limit(1)
   const [tplRow] = botRow ? await db.select().from(templates).where(eq(templates.id, botRow.templateId)).limit(1) : []
-  const [pythonWorkspace] = await db.select({ code: pythonWorkspaces.publishedCode, requirements: pythonWorkspaces.publishedRequirements }).from(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, run.botId), eq(pythonWorkspaces.workspaceId, agent.workspaceId), eq(pythonWorkspaces.status, 'published'))).limit(1)
-  if (!pythonWorkspace?.code) return Response.json({ error: 'Python bot is not published' }, { status: 409 })
+  const [pythonWorkspace] = await db.select({ publishedCode: pythonWorkspaces.publishedCode, publishedRequirements: pythonWorkspaces.publishedRequirements }).from(pythonWorkspaces).where(and(eq(pythonWorkspaces.botId, run.botId), eq(pythonWorkspaces.workspaceId, agent.workspaceId))).limit(1)
+  const pythonPayload = selectPythonJobPayload(run.scenarioSnapshot, pythonWorkspace)
+  if (!pythonPayload) return Response.json({ error: 'Python bot is not published' }, { status: 409 })
   const targetRows = await db.select().from(botRefs).where(and(eq(botRefs.botId, run.botId), eq(botRefs.workspaceId, agent.workspaceId), eq(botRefs.status, 'active'), sql`${botRefs.successCount} < ${botRefs.successLimit}`)).orderBy(asc(botRefs.position), asc(botRefs.id))
   const storedConfig = (botRow?.config && typeof botRow.config === 'object' ? botRow.config : {}) as Record<string, unknown>
   const blockedConfigKeys = new Set(['proxySecret', 'passwordSecret', 'proxy', 'password'])
@@ -70,8 +71,8 @@ export async function GET(req: Request) {
       leaseExpiresInSeconds: LEASE_TTL_SECONDS,
       protocolVersion: AGENT_PROTOCOL_VERSION,
       python: {
-        code: pythonWorkspace.code,
-        requirements: pythonWorkspace.requirements,
+        code: pythonPayload.code,
+        requirements: pythonPayload.requirements,
         timeoutSeconds: 900,
         limits: { cpus: 1, memoryMb: 512, pids: 256, outputBytes: 1_000_000 },
         internetAccess: true,
