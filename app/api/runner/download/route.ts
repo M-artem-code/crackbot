@@ -29,18 +29,12 @@ export async function POST(request: Request) {
   )).limit(1)
   if (!pairing) return Response.json({ error: 'PAIRING_EXPIRED' }, { status: 410 })
 
-  const installerUrl = process.env.RUNNER_INSTALLER_URL
-  if (!installerUrl?.startsWith('https://')) {
-    return Response.json({ error: 'INSTALLER_NOT_PUBLISHED', message: 'Windows Runner beta ещё не опубликован.' }, { status: 503 })
-  }
-  const upstream = await fetch(installerUrl, { cache: 'no-store' })
-  if (!upstream.ok || !upstream.body) return Response.json({ error: 'INSTALLER_UNAVAILABLE' }, { status: 502 })
-  return new Response(upstream.body, {
-    headers: {
-      'Content-Type': 'application/vnd.microsoft.portable-executable',
-      'Content-Disposition': `attachment; filename="BotForgeRunner-${token}.exe"`,
-      'Cache-Control': 'private, no-store, max-age=0',
-      'X-Content-Type-Options': 'nosniff',
-    },
-  })
+  const defaultInstallerUrl = 'https://github.com/M-artem-code/crackbot/releases/download/runner-v0.1.0-beta.5/BotForgeRunner-Setup.exe'
+  const installerUrl = process.env.RUNNER_INSTALLER_URL?.startsWith('https://')
+    ? process.env.RUNNER_INSTALLER_URL
+    : defaultInstallerUrl
+  return Response.json(
+    { downloadUrl: installerUrl },
+    { headers: { 'Cache-Control': 'private, no-store, max-age=0' } },
+  )
 }
