@@ -107,15 +107,24 @@ class Runner:
         logs = StepBuffer(client, run_id, lease, flush_interval=1, max_size=10)
         started = time.monotonic()
 
+        monitor_stop = threading.Event()
+
+        def monitor_lease() -> None:
+            while not monitor_stop.wait(20):
+                try:
+                    state = client.run_heartbeat(run_id, lease)
+                    if state.get("cancelRequested"):
+                        self.cancel_event.set()
+                        return
+                except Exception as exc:
+                    self.on_log(f"Не удалось продлить lease: {str(exc)[:160]}")
+
+        monitor = threading.Thread(target=monitor_lease, daemon=True)
+        monitor.start()
+
         def send_log(line: str) -> None:
             self.on_log(line)
             logs.add("python.stdout", line)
-            try:
-                state = client.run_heartbeat(run_id, lease)
-                if state.get("cancelRequested"):
-                    self.cancel_event.set()
-            except Exception:
-                pass
 
         try:
             result = execute_python(run_id, code, requirements, self.cancel_event, send_log)
@@ -129,4 +138,6 @@ class Runner:
                 error=None if status == "success" else result.output[-1000:],
             )
         finally:
+            monitor_stop.set()
+            monitor.join(timeout=2)
             self.on_state("online", "Готов к работе")

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import json
+import queue
 import shutil
 import subprocess
 import tempfile
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -92,28 +93,39 @@ def execute_python(
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         chunks: list[str] = []
-        timer = threading.Timer(timeout_seconds, cancel_event.set)
-        timer.start()
-        try:
+        lines: queue.Queue[str | None] = queue.Queue()
+        deadline = time.monotonic() + timeout_seconds
+
+        def read_output() -> None:
             assert process.stdout is not None
-            while process.poll() is None:
-                line = process.stdout.readline()
-                if line:
-                    chunks.append(line)
-                    on_log(line.rstrip()[:2_000])
-                    if sum(map(len, chunks)) > MAX_OUTPUT_BYTES:
-                        cancel_event.set()
+            for line in process.stdout:
+                lines.put(line)
+            lines.put(None)
+
+        reader = threading.Thread(target=read_output, daemon=True)
+        reader.start()
+        timed_out = False
+        try:
+            while process.poll() is None or reader.is_alive():
+                try:
+                    line = lines.get(timeout=0.25)
+                    if line is not None:
+                        chunks.append(line)
+                        on_log(line.rstrip()[:2_000])
+                        if sum(map(len, chunks)) > MAX_OUTPUT_BYTES:
+                            cancel_event.set()
+                except queue.Empty:
+                    pass
+                if time.monotonic() >= deadline:
+                    timed_out = True
+                    cancel_event.set()
                 if cancel_event.is_set():
                     subprocess.run(["docker", "stop", "--time", "5", container_name], capture_output=True, check=False)
                     break
-            remainder = process.stdout.read()
-            if remainder:
-                chunks.append(remainder)
             process.wait(timeout=15)
-            timed_out = timer.finished.is_set() is False and cancel_event.is_set()
+            reader.join(timeout=2)
             return ExecutionResult(process.returncode or 0, "".join(chunks)[-MAX_OUTPUT_BYTES:], cancel_event.is_set(), timed_out)
         finally:
-            timer.cancel()
             subprocess.run(["docker", "rm", "-f", container_name], capture_output=True, check=False)
             subprocess.run(["docker", "image", "rm", "-f", image], capture_output=True, check=False)
             shutil.rmtree(root, ignore_errors=True)

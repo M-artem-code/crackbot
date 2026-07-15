@@ -10,7 +10,7 @@ import {
   Trash2Icon,
 } from 'lucide-react'
 
-import { deleteAgent, rotateApiKey, setAgentDisabled } from '@/app/actions/agents'
+import { createAgentPairingToken, deleteAgent, rotateApiKey, setAgentDisabled } from '@/app/actions/agents'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import {
@@ -32,6 +32,7 @@ import {
 import { Spinner } from '@/components/ui/spinner'
 import { AgentStatusBadge } from '@/components/status-badge'
 import { ApiKeyDialog } from '@/components/agents/api-key-dialog'
+import { RunnerSetupDialog } from '@/components/agents/runner-setup-dialog'
 import { formatRelativeTime, type AgentInfo } from '@/lib/mock-data'
 
 export function AgentCard({ agent }: { agent: AgentInfo }) {
@@ -39,12 +40,24 @@ export function AgentCard({ agent }: { agent: AgentInfo }) {
   const [showDelete, setShowDelete] = React.useState(false)
   const [rotatedKey, setRotatedKey] = React.useState<string | null>(null)
   const [keyDialogOpen, setKeyDialogOpen] = React.useState(false)
+  const [setupOpen, setSetupOpen] = React.useState(false)
+  const [pairingToken, setPairingToken] = React.useState<string | null>(null)
+  const [pairingExpiresAt, setPairingExpiresAt] = React.useState<string | null>(null)
 
   function handleRotate() {
     startTransition(async () => {
       const res = await rotateApiKey(agent.id)
       setRotatedKey(res.apiKey)
       setKeyDialogOpen(true)
+    })
+  }
+
+  function handleSetup() {
+    startTransition(async () => {
+      const result = await createAgentPairingToken(agent.id)
+      setPairingToken(result.pairingToken)
+      setPairingExpiresAt(result.pairingExpiresAt)
+      setSetupOpen(true)
     })
   }
 
@@ -78,7 +91,11 @@ export function AgentCard({ agent }: { agent: AgentInfo }) {
                 >
                   <MoreVerticalIcon />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem onClick={handleSetup}>
+                    <MonitorIcon />
+                    Установить раннер
+                  </DropdownMenuItem>
                   <DropdownMenuItem onClick={handleRotate}>
                     <RefreshCwIcon />
                     Перевыпустить ключ
@@ -143,6 +160,14 @@ export function AgentCard({ agent }: { agent: AgentInfo }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RunnerSetupDialog
+        open={setupOpen}
+        onOpenChange={setSetupOpen}
+        agentName={agent.name}
+        pairingToken={pairingToken}
+        expiresAt={pairingExpiresAt}
+      />
 
       <ApiKeyDialog
         open={keyDialogOpen}

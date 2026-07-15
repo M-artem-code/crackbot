@@ -12,5 +12,5 @@ export default defineConfig([
       'react-hooks/static-components': 'warn',
     },
   },
-  globalIgnores(['.next/**', 'node_modules/**', 'next-env.d.ts', 'agent/stealth.js', 'agent/templates/**/stealth.js']),
+  globalIgnores(['.next/**', '.venv*/**', 'node_modules/**', 'next-env.d.ts', 'agent/stealth.js', 'agent/templates/**/stealth.js']),
 ])

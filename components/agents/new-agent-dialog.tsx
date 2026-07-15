@@ -18,7 +18,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Spinner } from '@/components/ui/spinner'
-import { ApiKeyDialog } from '@/components/agents/api-key-dialog'
+import { RunnerSetupDialog } from '@/components/agents/runner-setup-dialog'
 
 export function NewAgentDialog() {
   const [open, setOpen] = React.useState(false)
@@ -68,7 +68,7 @@ export function NewAgentDialog() {
               <Label htmlFor="agent-name">Имя агента</Label>
               <Input
                 id="agent-name"
-                placeholder="напр. mac-studio-1"
+                placeholder="напр. Домашний Windows ПК"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoFocus
@@ -87,13 +87,12 @@ export function NewAgentDialog() {
         </DialogContent>
       </Dialog>
 
-      <ApiKeyDialog
-        open={keyDialogOpen}
-        onOpenChange={setKeyDialogOpen}
+      <RunnerSetupDialog
+        open={setupOpen}
+        onOpenChange={setSetupOpen}
         agentName={createdName}
-        apiKey={createdKey}
-        title="Агент создан"
-        description="Используйте этот ключ для подключения агента к серверу."
+        pairingToken={pairingToken}
+        expiresAt={pairingExpiresAt}
       />
     </>
   )
