@@ -35,7 +35,7 @@ jobs:
         run: |
           $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $iscc)) { throw 'Inno Setup 6 is not installed on the runner image' }
-          & $iscc /?
+          Write-Host "Using Inno Setup compiler: $iscc"
       - name: Build per-user setup
         shell: pwsh
         env:
